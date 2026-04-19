@@ -8,6 +8,9 @@ const derslikRoutes = require('./src/routes/derslikRoutes');
 const gozetmenRoutes = require('./src/routes/gozetmenRoutes');
 const musaitlikRoutes = require('./src/routes/musaitlikRoutes');
 const sinavRoutes = require('./src/routes/sinavRoutes');
+const healthRoutes = require('./src/routes/healthRoutes');
+const notFound = require('./src/middleware/notFound');
+const errorHandler = require('./src/middleware/errorHandler');
 
 // Veritabanına bağlan
 connectDB();
@@ -25,15 +28,15 @@ app.get('/', (req, res) => {
 });
 
 // API rotalarını eşleştir
+app.use('/api/health', healthRoutes);
 app.use('/api/derslikler', derslikRoutes);
 app.use('/api/gozetmenler', gozetmenRoutes);
 app.use('/api/musaitlikler', musaitlikRoutes);
 app.use('/api/sinavlar', sinavRoutes);
 
-// Kalan geçersiz rotalar için basit bir hata yakalayıcı (404)
-app.use((req, res, next) => {
-  res.status(404).json({ success: false, message: 'Geçersiz Endpoint / Route bulunamadı' });
-});
+// Kalan geçersiz rotalar ve beklenmeyen hatalar
+app.use(notFound);
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 5001;
 
