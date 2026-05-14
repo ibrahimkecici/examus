@@ -1,0 +1,315 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  DEPARTMENT_MANAGER
+  INSTRUCTOR
+  INVIGILATOR
+  STUDENT
+}
+
+enum ExamType {
+  VIZE
+  FINAL
+  BUTUNLEME
+  QUIZ
+  OTHER
+}
+
+enum ScenarioStatus {
+  DRAFT
+  RUNNING
+  COMPLETED
+  APPROVED
+  FAILED
+}
+
+enum SeatStatus {
+  AKTIF
+  PASIF
+  BOSLUK
+}
+
+enum ImportStatus {
+  VALIDATING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(DEPARTMENT_MANAGER)
+  department   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  instructorCourses Course[]      @relation("CourseInstructor")
+  studentProfile    Student?
+  invigilatorProfile Invigilator?
+  auditLogs         AuditLog[]
+}
+
+model Student {
+  id           String   @id @default(cuid())
+  studentNo    String   @unique
+  fullName     String
+  department   String
+  classLevel   Int?
+  specialNeeds String?
+  userId       String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user            User?            @relation(fields: [userId], references: [id])
+  enrollments     CourseEnrollment[]
+  seatAssignments SeatAssignment[]
+}
+
+model Course {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  name            String
+  instructorName  String?
+  instructorId    String?
+  department      String?
+  studentCount    Int      @default(0)
+  durationMinutes Int      @default(120)
+  examType        ExamType @default(FINAL)
+  specialRules    Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  instructor  User?              @relation("CourseInstructor", fields: [instructorId], references: [id])
+  enrollments CourseEnrollment[]
+  exams       Exam[]
+}
+
+model CourseEnrollment {
+  id        String   @id @default(cuid())
+  studentId String
+  courseId  String
+  createdAt DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, courseId])
+}
+
+model Classroom {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  building     String?
+  block        String?
+  floor        String?
+  capacity     Int
+  rowCount     Int      @default(1)
+  columnCount  Int      @default(1)
+  layoutType   String   @default("TEKLI")
+  availability Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  seats           Seat[]
+  roomAssignments ExamRoomAssignment[]
+}
+
+model Seat {
+  id          String     @id @default(cuid())
+  classroomId String
+  label       String
+  row         Int
+  column      Int
+  status      SeatStatus @default(AKTIF)
+  capacity    Int        @default(1)
+
+  classroom       Classroom       @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  seatAssignments SeatAssignment[]
+
+  @@unique([classroomId, row, column])
+}
+
+model Invigilator {
+  id             String   @id @default(cuid())
+  staffNo        String   @unique
+  firstName      String
+  lastName       String
+  title          String?
+  email          String?
+  phone          String?
+  department     String?
+  maxAssignments Int      @default(4)
+  priority       Int      @default(0)
+  constraints    Json?
+  userId         String?  @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user        User?                    @relation(fields: [userId], references: [id])
+  availability Availability[]
+  assignments  InvigilatorAssignment[]
+}
+
+model Availability {
+  id            String   @id @default(cuid())
+  invigilatorId String
+  date          DateTime
+  startTime     String
+  endTime       String
+  status        String   @default("MUSAIT")
+
+  invigilator Invigilator @relation(fields: [invigilatorId], references: [id], onDelete: Cascade)
+}
+
+model ExamPeriod {
+  id        String   @id @default(cuid())
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  slots     Json
+  status    String   @default("DRAFT")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  exams     Exam[]
+  scenarios PlanningScenario[]
+}
+
+model Exam {
+  id              String   @id @default(cuid())
+  courseId        String
+  periodId        String?
+  date            DateTime?
+  startTime       String?
+  endTime         String?
+  durationMinutes Int      @default(120)
+  type            ExamType @default(FINAL)
+  status          String   @default("DRAFT")
+  minRooms        Int?
+  maxRooms        Int?
+  pinned          Boolean  @default(false)
+  specialRules    Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  course          Course                  @relation(fields: [courseId], references: [id])
+  period          ExamPeriod?             @relation(fields: [periodId], references: [id])
+  roomAssignments ExamRoomAssignment[]
+  seatAssignments SeatAssignment[]
+  invigilators    InvigilatorAssignment[]
+}
+
+model PlanningScenario {
+  id        String         @id @default(cuid())
+  periodId  String
+  name      String
+  strategy  String         @default("compact")
+  status    ScenarioStatus @default(DRAFT)
+  score     Float          @default(0)
+  metrics   Json?
+  warnings  Json?
+  approvedAt DateTime?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  period       ExamPeriod           @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  rooms        ExamRoomAssignment[]
+  seats        SeatAssignment[]
+  invigilators InvigilatorAssignment[]
+  insights     AiInsight[]
+}
+
+model ExamRoomAssignment {
+  id          String @id @default(cuid())
+  scenarioId  String
+  examId      String
+  classroomId String
+  assignedCount Int @default(0)
+
+  scenario  PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  exam      Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  classroom Classroom        @relation(fields: [classroomId], references: [id])
+
+  @@unique([scenarioId, examId, classroomId])
+}
+
+model SeatAssignment {
+  id          String @id @default(cuid())
+  scenarioId  String
+  examId      String
+  studentId   String
+  classroomId String
+  seatId      String
+  locked      Boolean @default(false)
+
+  scenario PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  exam     Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student  Student          @relation(fields: [studentId], references: [id])
+  seat     Seat             @relation(fields: [seatId], references: [id])
+
+  @@unique([scenarioId, examId, studentId])
+  @@unique([scenarioId, examId, seatId])
+}
+
+model InvigilatorAssignment {
+  id            String @id @default(cuid())
+  scenarioId    String
+  examId        String
+  invigilatorId String
+  role          String @default("SALON")
+
+  scenario    PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  exam        Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  invigilator Invigilator      @relation(fields: [invigilatorId], references: [id])
+
+  @@unique([scenarioId, examId, invigilatorId])
+}
+
+model ImportBatch {
+  id          String       @id @default(cuid())
+  entityType  String
+  fileName    String?
+  status      ImportStatus @default(VALIDATING)
+  totalRows   Int          @default(0)
+  successRows Int          @default(0)
+  errorRows   Int          @default(0)
+  errors      Json?
+  createdAt   DateTime     @default(now())
+}
+
+model AiInsight {
+  id         String   @id @default(cuid())
+  scenarioId String
+  provider   String
+  model      String?
+  summary    String
+  risks      Json?
+  suggestions Json?
+  createdAt  DateTime @default(now())
+
+  scenario PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}

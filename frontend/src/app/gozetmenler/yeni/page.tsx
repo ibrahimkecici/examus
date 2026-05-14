@@ -2,8 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { apiFetch } from '@/lib/api';
 
 export default function YeniGozetmen() {
+  const router = useRouter();
   const [formData, setFormData] = useState({
     ad: '',
     soyad: '',
@@ -15,14 +18,15 @@ export default function YeniGozetmen() {
   });
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // API Call Mockup (Buraya gerçek POST isteği eklenecek)
-    setTimeout(() => {
+    try {
+      await apiFetch('/invigilators', { method: 'POST', body: JSON.stringify(formData) });
+      router.push('/gozetmenler');
+    } finally {
       setLoading(false);
-      alert('Gözetmen başarıyla (simüle) eklendi!');
-    }, 1000);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

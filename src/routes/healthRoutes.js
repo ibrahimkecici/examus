@@ -1,30 +1,28 @@
 const express = require('express');
-const mongoose = require('mongoose');
+const prisma = require('../config/prisma');
 
 const router = express.Router();
 
-const READY_STATE_LABELS = {
-  0: 'disconnected',
-  1: 'connected',
-  2: 'connecting',
-  3: 'disconnecting'
-};
+router.get('/', async (req, res) => {
+  let connected = false;
 
-router.get('/', (req, res) => {
-  const readyState = mongoose.connection.readyState;
-  const readyStateLabel = READY_STATE_LABELS[readyState] || 'unknown';
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    connected = true;
+  } catch (error) {
+    connected = false;
+  }
 
   res.status(200).json({
     success: true,
-    service: 'examoptim-api',
+    service: 'examus-api',
     env: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
     db: {
-      connected: readyState === 1,
-      readyState,
-      readyStateLabel
-    }
+      connected,
+      provider: 'postgresql',
+    },
   });
 });
 

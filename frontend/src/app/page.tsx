@@ -1,65 +1,91 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import StatusPill from '@/components/StatusPill';
+import { apiFetch } from '@/lib/api';
+
+type Dashboard = {
+  counts: { students: number; courses: number; classrooms: number; invigilators: number; exams: number };
+  warningCount: number;
+  scenarios: Array<{ id: string; name: string; status: string; score: number; period?: { name: string } }>;
+};
 
 export default function Home() {
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiFetch<Dashboard>('/dashboard')
+      .then((response) => setDashboard(response.data))
+      .catch((err) => setError(err.message));
+  }, []);
+
+  const counts = dashboard?.counts;
+
   return (
-    <div className="space-y-8 animate-in fade-in zoom-in duration-500">
-      <header className="flex flex-col gap-2">
-        <h2 className="text-4xl font-extrabold tracking-tight">KONTROL PANELİ</h2>
-        <p className="text-gray-500 dark:text-gray-400 text-lg">
-          Sınav, derslik ve gözetmen yönetimini tek bir noktadan yapın.
-        </p>
+    <div className="space-y-8">
+      <header>
+        <h2 className="text-3xl font-bold">Kontrol Paneli</h2>
+        <p className="mt-1 text-slate-500">Sınav dönemi, veri kalitesi, planlama ve rapor durumunu izleyin.</p>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <DashboardCard 
-          title="Toplam Sınav"
-          count={0}
-          desc="Henüz eklenmiş sınav yok."
-          color="from-pink-500 to-rose-500"
-          href="/sinavlar"
-        />
-        <DashboardCard 
-          title="Sistemdeki Gözetmenler"
-          count={0}
-          desc="Şu an için gözetmen kaydı bulunamadı."
-          color="from-sky-400 to-indigo-500"
-          href="/gozetmenler"
-        />
-        <DashboardCard 
-          title="Kayıtlı Derslikler"
-          count={0}
-          desc="Oturum düzenlemeleri ve derslik yönetimleri."
-          color="from-emerald-400 to-teal-500"
-          href="/derslikler"
-        />
+      {error ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{error}</div> : null}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+        <Metric title="Öğrenci" value={counts?.students} href="/ogrenciler" />
+        <Metric title="Ders" value={counts?.courses} href="/dersler" />
+        <Metric title="Derslik" value={counts?.classrooms} href="/derslikler" />
+        <Metric title="Gözetmen" value={counts?.invigilators} href="/gozetmenler" />
+        <Metric title="Sınav" value={counts?.exams} href="/sinavlar" />
       </div>
-      
-      <div className="mt-12 p-8 rounded-3xl bg-gradient-to-br from-indigo-50/50 to-white dark:from-indigo-950/20 dark:to-gray-900 border border-indigo-100 dark:border-indigo-900 shadow-sm flex items-center justify-between">
-        <div>
-          <h3 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">Sistem API'sine Bağlanılmadı</h3>
-          <p className="mt-2 text-gray-500">
-            Node.js backend (port 5001) daha sonra bu arayüze entegre edilecek ve 0 yazan değerler gerçekçi verilerle dolacaktır.
-          </p>
+
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
+        <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Son Planlama Senaryoları</h3>
+            <Link className="rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white" href="/planlama">
+              Planlama
+            </Link>
+          </div>
+          <div className="space-y-3">
+            {dashboard?.scenarios?.length ? (
+              dashboard.scenarios.map((scenario) => (
+                <Link key={scenario.id} href={`/planlama?scenario=${scenario.id}`} className="flex items-center justify-between rounded-lg border border-slate-100 p-4 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-950">
+                  <div>
+                    <p className="font-semibold">{scenario.name}</p>
+                    <p className="text-sm text-slate-500">{scenario.period?.name || 'Dönem atanmamış'}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <StatusPill tone={scenario.status === 'APPROVED' ? 'green' : 'blue'}>{scenario.status}</StatusPill>
+                    <span className="font-mono text-sm">{Math.round(scenario.score)}</span>
+                  </div>
+                </Link>
+              ))
+            ) : (
+              <p className="rounded-lg bg-slate-50 p-6 text-center text-slate-500 dark:bg-slate-950">Henüz senaryo yok.</p>
+            )}
+          </div>
         </div>
-        <div className="w-16 h-16 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center animate-pulse">
-          🔌
+
+        <div className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+          <h3 className="text-lg font-semibold">Plan Sağlığı</h3>
+          <div className="mt-6 text-5xl font-bold">{dashboard?.warningCount ?? 0}</div>
+          <p className="mt-2 text-sm text-slate-500">Son senaryolardaki toplam uyarı sayısı</p>
+          <Link href="/raporlar" className="mt-6 inline-flex rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-950">
+            Raporları aç
+          </Link>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
 
-function DashboardCard({ title, count, desc, color, href }: { title: string, count: number, desc: string, color: string, href: string }) {
+function Metric({ title, value, href }: { title: string; value?: number; href: string }) {
   return (
-    <Link href={href} className="group relative overflow-hidden rounded-3xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-800/50 p-6 shadow-sm transition-all hover:shadow-xl hover:-translate-y-1 block">
-      <div className={`absolute -right-6 -top-6 w-32 h-32 rounded-full bg-gradient-to-br ${color} opacity-20 blur-2xl group-hover:scale-150 transition-transform duration-500`}></div>
-      <div className="relative z-10">
-        <h4 className="font-semibold text-gray-500 dark:text-gray-400 mb-2">{title}</h4>
-        <div className="text-5xl font-black text-gray-800 dark:text-gray-100 mb-2 group-hover:bg-clip-text group-hover:text-transparent group-hover:bg-gradient-to-r hover-gradient-color">
-           <span className={`bg-gradient-to-r ${color} bg-clip-text text-transparent`}>{count}</span>
-        </div>
-        <p className="text-sm text-gray-500">{desc}</p>
-      </div>
+    <Link href={href} className="rounded-lg border border-slate-200 bg-white p-5 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-950">
+      <p className="text-sm font-semibold text-slate-500">{title}</p>
+      <p className="mt-3 text-3xl font-bold">{value ?? '-'}</p>
     </Link>
   );
 }

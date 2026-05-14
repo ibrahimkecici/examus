@@ -1,40 +1,59 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const connectDB = require('./src/config/db');
-
-// Rota dosyalarını içeri aktar
-const derslikRoutes = require('./src/routes/derslikRoutes');
-const gozetmenRoutes = require('./src/routes/gozetmenRoutes');
-const musaitlikRoutes = require('./src/routes/musaitlikRoutes');
-const sinavRoutes = require('./src/routes/sinavRoutes');
+const authRoutes = require('./src/routes/authRoutes');
+const userRoutes = require('./src/routes/userRoutes');
+const importRoutes = require('./src/routes/importRoutes');
+const planningRoutes = require('./src/routes/planningRoutes');
+const aiRoutes = require('./src/routes/aiRoutes');
+const reportRoutes = require('./src/routes/reportRoutes');
+const dashboardRoutes = require('./src/routes/dashboardRoutes');
+const manualEditRoutes = require('./src/routes/manualEditRoutes');
+const { requireAuth } = require('./src/middleware/auth');
+const {
+  classroomRoutes,
+  courseRoutes,
+  examPeriodRoutes,
+  examRoutes,
+  invigilatorRoutes,
+  studentRoutes,
+} = require('./src/routes/resourceRoutes');
 const healthRoutes = require('./src/routes/healthRoutes');
 const notFound = require('./src/middleware/notFound');
 const errorHandler = require('./src/middleware/errorHandler');
 
-// Veritabanına bağlan
-connectDB();
-
 const app = express();
 
-// Middleware'ler
-app.use(cors()); // Farklı domainlerden (örn. React, Vue) istek atılabilmesi için CORS aktif
-app.use(express.json()); // Gelen isteklerdeki JSON verilerini parse edebilmek için
+app.use(cors());
+app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: false }));
 
-// Ana test rotası
 app.get('/', (req, res) => {
-  res.send('ExamOptim API Sunucusu Çalışıyor...');
+  res.send('Examus API Sunucusu Çalışıyor...');
 });
 
-// API rotalarını eşleştir
 app.use('/api/health', healthRoutes);
-app.use('/api/derslikler', derslikRoutes);
-app.use('/api/gozetmenler', gozetmenRoutes);
-app.use('/api/musaitlikler', musaitlikRoutes);
-app.use('/api/sinavlar', sinavRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api', requireAuth);
+app.use('/api/users', userRoutes);
+app.use('/api/students', studentRoutes);
+app.use('/api/courses', courseRoutes);
+app.use('/api/classrooms', classroomRoutes);
+app.use('/api/invigilators', invigilatorRoutes);
+app.use('/api/exams', examRoutes);
+app.use('/api/exam-periods', examPeriodRoutes);
+app.use('/api/imports', importRoutes);
+app.use('/api/planning', planningRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api', manualEditRoutes);
 
-// Kalan geçersiz rotalar ve beklenmeyen hatalar
+// Turkish aliases kept for the existing frontend routes while it is migrated.
+app.use('/api/derslikler', classroomRoutes);
+app.use('/api/gozetmenler', invigilatorRoutes);
+app.use('/api/sinavlar', examRoutes);
+
 app.use(notFound);
 app.use(errorHandler);
 

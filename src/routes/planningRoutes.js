@@ -1,0 +1,62 @@
+const express = require('express');
+const prisma = require('../config/prisma');
+const asyncHandler = require('../utils/asyncHandler');
+const { recheckScenario, runScenario } = require('../services/planningService');
+
+const router = express.Router();
+
+router.post(
+  '/scenarios',
+  asyncHandler(async (req, res) => {
+    const data = await prisma.planningScenario.create({
+      data: {
+        periodId: req.body.periodId,
+        name: req.body.name || 'Yeni planlama senaryosu',
+        strategy: req.body.strategy || 'compact',
+      },
+    });
+    res.status(201).json({ success: true, data });
+  }),
+);
+
+router.get(
+  '/scenarios',
+  asyncHandler(async (req, res) => {
+    const data = await prisma.planningScenario.findMany({ include: { period: true }, orderBy: { createdAt: 'desc' } });
+    res.json({ success: true, count: data.length, data });
+  }),
+);
+
+router.get(
+  '/scenarios/:id',
+  asyncHandler(async (req, res) => {
+    const data = await prisma.planningScenario.findUnique({
+      where: { id: req.params.id },
+      include: {
+        period: true,
+        rooms: { include: { classroom: true, exam: { include: { course: true } } } },
+        seats: { include: { student: true, seat: true, exam: { include: { course: true } } } },
+        invigilators: { include: { invigilator: true, exam: { include: { course: true } } } },
+        insights: true,
+      },
+    });
+    if (!data) return res.status(404).json({ success: false, message: 'Planlama senaryosu bulunamadı.' });
+    res.json({ success: true, data });
+  }),
+);
+
+router.post('/scenarios/:id/run', asyncHandler(async (req, res) => res.json({ success: true, data: await runScenario(req.params.id) })));
+router.post('/scenarios/:id/recheck', asyncHandler(async (req, res) => res.json({ success: true, data: await recheckScenario(req.params.id) })));
+
+router.post(
+  '/scenarios/:id/approve',
+  asyncHandler(async (req, res) => {
+    const data = await prisma.planningScenario.update({
+      where: { id: req.params.id },
+      data: { status: 'APPROVED', approvedAt: new Date() },
+    });
+    res.json({ success: true, data });
+  }),
+);
+
+module.exports = router;
