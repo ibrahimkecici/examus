@@ -13,6 +13,9 @@ function normalizeClassroom(body) {
     block: body.block || null,
     floor: body.floor || null,
     capacity: Number(body.capacity || body.kapasite || seats.filter((seat) => seat.durum !== 'Boşluk' && seat.status !== 'BOSLUK').length || 1),
+    examCapacity: body.examCapacity === undefined ? null : Number(body.examCapacity),
+    roomType: body.roomType || null,
+    features: body.features || null,
     rowCount,
     columnCount,
     layoutType: body.layoutType || 'TEKLI',
@@ -64,6 +67,8 @@ function normalizeCourse(body) {
     durationMinutes: Number(body.durationMinutes || body.sure || 120),
     examType: body.examType || body.type || 'FINAL',
     specialRules: body.specialRules || null,
+    requiredRoomType: body.requiredRoomType || null,
+    requiredFeatures: body.requiredFeatures || null,
   };
 }
 
@@ -91,6 +96,8 @@ function normalizeExam(body) {
     maxRooms: body.maxRooms ? Number(body.maxRooms) : null,
     pinned: Boolean(body.pinned),
     specialRules: body.specialRules || null,
+    requiredRoomType: body.requiredRoomType || null,
+    requiredFeatures: body.requiredFeatures || null,
   };
 }
 

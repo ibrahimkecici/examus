@@ -1,5 +1,16 @@
 const prisma = require('../config/prisma');
 const { addMinutes, dateRange, overlaps, sameDate } = require('../utils/time');
+const { buildCourseConflictMatrix, getExamStudents } = require('./planning/courseConflictMatrixBuilder');
+const { DEFAULT_PLANNING_CONFIG, normalizeStrategy, strategyWeights } = require('./planning/config');
+const { buildExplanations } = require('./planning/explanationBuilder');
+const { invigilatorDisplayName } = require('./planning/invigilatorAllocator');
+const { buildScenarioMetrics } = require('./planning/metricsBuilder');
+const { buildPlanningGroups } = require('./planning/mixedRoomPlanner');
+const { activeSeatCapacity, buildRoomCandidates } = require('./planning/roomAllocator');
+const { evaluatePlacementCandidate } = require('./planning/scenarioScorer');
+const { allocateSeatsForRoom } = require('./planning/seatAllocator');
+const { groupSpecialNeedSummary, requiresExtraTime, studentSpecialNeeds } = require('./planning/specialNeeds');
+const { validatePlacementConflicts, warning } = require('./planning/validationService');
 
 function defaultSlots(period) {
   if (Array.isArray(period.slots) && period.slots.length > 0) return period.slots;
@@ -10,31 +21,49 @@ function defaultSlots(period) {
   ];
 }
 
-function getExamStudents(exam) {
-  return exam.course.enrollments.map((enrollment) => enrollment.student);
+function slotStart(slot) {
+  return slot.startTime || slot.start;
 }
 
-function studentConflict(existing, exam, date, startTime, endTime) {
-  const studentIds = new Set(getExamStudents(exam).map((student) => student.id));
-  return existing.some((item) => {
-    if (!sameDate(item.date, date) || !overlaps(item.startTime, item.endTime, startTime, endTime)) return false;
-    return item.studentIds.some((studentId) => studentIds.has(studentId));
-  });
+function slotEnd(slot) {
+  return slot.endTime || slot.end;
 }
 
-function findRooms(classrooms, needed, maxRooms) {
-  const selected = [];
-  let capacity = 0;
-  const ordered = [...classrooms].sort((a, b) => b.capacity - a.capacity);
+function slotDate(slot, fallbackDate) {
+  return slot.date ? new Date(slot.date) : fallbackDate;
+}
 
-  for (const classroom of ordered) {
-    if (maxRooms && selected.length >= maxRooms) break;
-    selected.push(classroom);
-    capacity += classroom.seats.filter((seat) => seat.status === 'AKTIF').reduce((sum, seat) => sum + seat.capacity, 0);
-    if (capacity >= needed) break;
+function buildScheduleCandidates(group, period, dates) {
+  const candidates = [];
+  for (const fallbackDate of dates) {
+    for (const slot of defaultSlots(period)) {
+      const date = slotDate(slot, fallbackDate);
+      if (slot.date && !sameDate(date, fallbackDate)) continue;
+      const startTime = slotStart(slot);
+      const slotEndTime = slotEnd(slot);
+      const endTime = addMinutes(startTime, group.durationMinutes);
+      if (!startTime || !slotEndTime || endTime > slotEndTime) continue;
+      candidates.push({ date, startTime, endTime, durationMinutes: group.durationMinutes });
+    }
   }
+  return candidates;
+}
 
-  return capacity >= needed ? selected : [];
+function sortDatesForStrategy(period, strategy) {
+  const dates = dateRange(period.startDate, period.endDate);
+  if (strategy === 'balanced' || strategy === 'fair_invigilator' || strategy === 'student_friendly') {
+    const result = [];
+    let left = 0;
+    let right = dates.length - 1;
+    while (left <= right) {
+      result.push(dates[left]);
+      if (left !== right) result.push(dates[right]);
+      left += 1;
+      right -= 1;
+    }
+    return result;
+  }
+  return dates;
 }
 
 async function ensurePeriodExams(periodId) {
@@ -45,10 +74,7 @@ async function ensurePeriodExams(periodId) {
     throw error;
   }
 
-  const courses = await prisma.course.findMany({
-    include: { exams: { where: { periodId } } },
-  });
-
+  const courses = await prisma.course.findMany({ include: { exams: { where: { periodId } } } });
   for (const course of courses) {
     if (course.exams.length === 0) {
       await prisma.exam.create({
@@ -58,6 +84,8 @@ async function ensurePeriodExams(periodId) {
           durationMinutes: course.durationMinutes,
           type: course.examType,
           specialRules: course.specialRules,
+          requiredRoomType: course.requiredRoomType,
+          requiredFeatures: course.requiredFeatures,
         },
       });
     }
@@ -66,12 +94,175 @@ async function ensurePeriodExams(periodId) {
   return period;
 }
 
-async function runScenario(scenarioId) {
-  const scenario = await prisma.planningScenario.findUnique({
-    where: { id: scenarioId },
-    include: { period: true },
+function invigilatorLoadFromPlacements(placements) {
+  const load = new Map();
+  for (const placement of placements) {
+    for (const invigilator of placement.invigilators) {
+      load.set(invigilator.id, [
+        ...(load.get(invigilator.id) || []),
+        {
+          date: placement.date,
+          startTime: placement.startTime,
+          endTime: placement.endTime,
+          building: placement.rooms[0]?.building,
+        },
+      ]);
+    }
+  }
+  return load;
+}
+
+function findBestPlacement({ group, classrooms, invigilators, placements, dates, period, strategy, weights, config }) {
+  let best = null;
+  const schedules = buildScheduleCandidates(group, period, dates);
+  const roomCandidates = buildRoomCandidates(classrooms, group.examGroups, weights, strategy);
+  const invigilatorLoad = invigilatorLoadFromPlacements(placements);
+
+  for (const schedule of schedules) {
+    for (const roomCandidate of roomCandidates) {
+      const candidate = evaluatePlacementCandidate({
+        group,
+        schedule,
+        roomCandidate,
+        invigilators,
+        placements,
+        invigilatorLoad,
+        dates,
+        strategy,
+        weights,
+        config,
+      });
+      if (candidate.valid && (!best || candidate.score < best.score)) best = candidate;
+    }
+  }
+  return best;
+}
+
+function improvePlacements({ placements, classrooms, invigilators, dates, period, strategy, weights, config }) {
+  let improved = [...placements];
+  for (let iteration = 0; iteration < config.maxLocalSearchIterations; iteration += 1) {
+    let changed = false;
+    for (const current of [...improved]) {
+      const others = improved.filter((item) => item !== current);
+      const candidate = findBestPlacement({ group: current.group, classrooms, invigilators, placements: others, dates, period, strategy, weights, config });
+      if (candidate && candidate.score + 1 < current.score) {
+        improved = [...others, toPlacement(candidate)];
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return improved;
+}
+
+function toPlacement(candidate) {
+  return {
+    ...candidate,
+    date: candidate.schedule.date,
+    startTime: candidate.schedule.startTime,
+    endTime: candidate.schedule.endTime,
+    roomIds: candidate.rooms.map((room) => room.id),
+    invigilatorIds: candidate.invigilators.map((invigilator) => invigilator.id),
+    studentIds: candidate.group.studentIds,
+  };
+}
+
+function specialWarningsForPlacement(placement) {
+  const warnings = [];
+  const summary = groupSpecialNeedSummary(placement.group.students);
+  if (summary) {
+    warnings.push(warning('SPECIAL_NEEDS_SUMMARY', `${placement.group.examGroups.map((group) => group.course.code).join(', ')}: ${summary}`, 'soft', { examId: placement.group.exams[0].id }));
+  }
+  for (const student of placement.group.students) {
+    if (requiresExtraTime(student)) {
+      warnings.push(warning('SPECIAL_NEEDS_EXTRA_TIME', `Ek süre: ${student.fullName}`, 'soft', { studentId: student.id, examId: placement.group.exams[0].id }));
+    }
+  }
+  return warnings;
+}
+
+function seatWarnings(placement, seatResult) {
+  const warnings = [];
+  if (seatResult.sameCourseAdjacentSeatCount > 0) {
+    warnings.push(warning('SAME_COURSE_ADJACENT_SEAT', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} karma salonda aynı ders öğrencileri yan yana kaldı.`, 'soft'));
+  }
+  if (seatResult.sameCourseFrontBackSeatCount > 0) {
+    warnings.push(warning('SAME_COURSE_FRONT_BACK_SEAT', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} karma salonda aynı ders öğrencileri ön-arka kaldı.`, 'soft'));
+  }
+  return warnings;
+}
+
+async function persistPlacement(scenarioId, placement) {
+  const room = placement.rooms[0];
+  const roomSlot = await prisma.examRoomSlot.create({
+    data: {
+      scenarioId,
+      classroomId: room.id,
+      date: placement.date,
+      startTime: placement.startTime,
+      endTime: placement.endTime,
+      mixed: placement.group.mixed,
+    },
   });
 
+  const seatResult = allocateSeatsForRoom(room, placement.group.examGroups);
+  const assignedByExam = new Map();
+  for (const assignment of seatResult.assignments) {
+    assignedByExam.set(assignment.exam.id, (assignedByExam.get(assignment.exam.id) || 0) + 1);
+    await prisma.seatAssignment.create({
+      data: {
+        scenarioId,
+        examId: assignment.exam.id,
+        studentId: assignment.student.id,
+        classroomId: room.id,
+        seatId: assignment.seat.id,
+      },
+    });
+  }
+
+  for (const group of placement.group.examGroups) {
+    await prisma.scenarioExamSchedule.create({
+      data: {
+        scenarioId,
+        examId: group.exam.id,
+        date: placement.date,
+        startTime: placement.startTime,
+        endTime: placement.endTime,
+        durationMinutes: group.exam.durationMinutes,
+      },
+    });
+    await prisma.exam.update({ where: { id: group.exam.id }, data: { status: 'PLANNED' } });
+    await prisma.examRoomAssignment.create({
+      data: {
+        scenarioId,
+        examId: group.exam.id,
+        classroomId: room.id,
+        roomSlotId: roomSlot.id,
+        assignedCount: assignedByExam.get(group.exam.id) || 0,
+      },
+    });
+    for (const invigilator of placement.invigilators) {
+      await prisma.invigilatorAssignment.create({
+        data: { scenarioId, examId: group.exam.id, invigilatorId: invigilator.id },
+      });
+    }
+  }
+
+  return {
+    roomSlot,
+    seatResult,
+    roomStats: {
+      roomId: room.id,
+      roomSlotId: roomSlot.id,
+      mixed: placement.group.mixed,
+      capacity: activeSeatCapacity(room),
+      assignedCount: seatResult.assignments.length,
+    },
+  };
+}
+
+async function runScenario(scenarioId) {
+  const scenario = await prisma.planningScenario.findUnique({ where: { id: scenarioId }, include: { period: true } });
   if (!scenario) {
     const error = new Error('Planlama senaryosu bulunamadı.');
     error.status = 404;
@@ -79,20 +270,17 @@ async function runScenario(scenarioId) {
   }
 
   await ensurePeriodExams(scenario.periodId);
+  const strategy = normalizeStrategy(scenario.strategy);
+  const weights = strategyWeights(strategy);
+  const config = DEFAULT_PLANNING_CONFIG;
 
   const [period, classrooms, invigilators, exams] = await Promise.all([
     prisma.examPeriod.findUnique({ where: { id: scenario.periodId } }),
-    prisma.classroom.findMany({ include: { seats: true }, orderBy: { capacity: 'desc' } }),
-    prisma.invigilator.findMany({ orderBy: [{ priority: 'desc' }, { lastName: 'asc' }] }),
+    prisma.classroom.findMany({ include: { seats: true }, orderBy: [{ capacity: 'asc' }, { code: 'asc' }] }),
+    prisma.invigilator.findMany({ include: { availability: true }, orderBy: [{ priority: 'desc' }, { lastName: 'asc' }] }),
     prisma.exam.findMany({
       where: { periodId: scenario.periodId },
-      include: {
-        course: {
-          include: {
-            enrollments: { include: { student: true } },
-          },
-        },
-      },
+      include: { course: { include: { enrollments: { include: { student: true } } } } },
     }),
   ]);
 
@@ -100,140 +288,70 @@ async function runScenario(scenarioId) {
     prisma.seatAssignment.deleteMany({ where: { scenarioId } }),
     prisma.invigilatorAssignment.deleteMany({ where: { scenarioId } }),
     prisma.examRoomAssignment.deleteMany({ where: { scenarioId } }),
+    prisma.examRoomSlot.deleteMany({ where: { scenarioId } }),
+    prisma.scenarioExamSchedule.deleteMany({ where: { scenarioId } }),
     prisma.planningScenario.update({ where: { id: scenarioId }, data: { status: 'RUNNING', warnings: [] } }),
   ]);
 
+  const dates = sortDatesForStrategy(period, strategy);
+  const courseConflictMatrix = buildCourseConflictMatrix(exams);
+  const groups = buildPlanningGroups(exams, courseConflictMatrix, classrooms, config, strategy);
   const warnings = [];
-  const placed = [];
-  const invigilatorLoad = new Map();
-  let capacityWaste = 0;
+  const placements = [];
 
-  const orderedExams = [...exams].sort((a, b) => getExamStudents(b).length - getExamStudents(a).length);
-  const dates = scenario.strategy === 'spread' ? dateRange(period.startDate, period.endDate).reverse() : dateRange(period.startDate, period.endDate);
-  const slots = defaultSlots(period);
-
-  for (const exam of orderedExams) {
-    const students = getExamStudents(exam);
-    const needed = students.length || exam.course.studentCount || 1;
-    const rooms = findRooms(classrooms, needed, exam.maxRooms);
-
-    if (rooms.length === 0) {
-      warnings.push({ type: 'CAPACITY', examId: exam.id, message: `${exam.course.code} için yeterli salon kapasitesi bulunamadı.` });
+  for (const group of groups) {
+    const candidate = findBestPlacement({ group, classrooms, invigilators, placements, dates, period, strategy, weights, config });
+    if (!candidate) {
+      warnings.push(warning('UNPLACED', `${group.examGroups.map((item) => item.course.code).join(', ')} için geçerli kaynak kombinasyonu bulunamadı.`, 'hard'));
       continue;
     }
-
-    let assignmentTime = null;
-    if (exam.pinned && exam.date && exam.startTime) {
-      assignmentTime = {
-        date: exam.date,
-        startTime: exam.startTime,
-        endTime: exam.endTime || addMinutes(exam.startTime, exam.durationMinutes),
-      };
-    } else {
-      for (const date of dates) {
-        for (const slot of slots) {
-          const endTime = addMinutes(slot.startTime, exam.durationMinutes);
-          if (endTime > slot.endTime) continue;
-          if (!studentConflict(placed, exam, date, slot.startTime, endTime)) {
-            assignmentTime = { date, startTime: slot.startTime, endTime };
-            break;
-          }
-        }
-        if (assignmentTime) break;
-      }
-    }
-
-    if (!assignmentTime) {
-      warnings.push({ type: 'TIME', examId: exam.id, message: `${exam.course.code} için çakışmasız zaman bulunamadı.` });
-      continue;
-    }
-
-    await prisma.exam.update({
-      where: { id: exam.id },
-      data: {
-        date: assignmentTime.date,
-        startTime: assignmentTime.startTime,
-        endTime: assignmentTime.endTime,
-        status: 'PLANNED',
-      },
-    });
-
-    const roomCapacity = rooms.reduce(
-      (sum, room) => sum + room.seats.filter((seat) => seat.status === 'AKTIF').reduce((seatSum, seat) => seatSum + seat.capacity, 0),
-      0,
-    );
-    capacityWaste += Math.max(0, roomCapacity - needed);
-
-    let studentIndex = 0;
-    for (const room of rooms) {
-      const activeSeats = room.seats.filter((seat) => seat.status === 'AKTIF').sort((a, b) => a.row - b.row || a.column - b.column);
-      let assignedCount = 0;
-
-      await prisma.examRoomAssignment.create({
-        data: { scenarioId, examId: exam.id, classroomId: room.id, assignedCount: Math.min(activeSeats.length, students.length - studentIndex) },
-      });
-
-      for (const seat of activeSeats) {
-        if (studentIndex >= students.length) break;
-        await prisma.seatAssignment.create({
-          data: {
-            scenarioId,
-            examId: exam.id,
-            studentId: students[studentIndex].id,
-            classroomId: room.id,
-            seatId: seat.id,
-          },
-        });
-        studentIndex += 1;
-        assignedCount += 1;
-      }
-    }
-
-    const requiredInvigilators = Math.max(1, rooms.length);
-    const assignedInvigilators = [];
-    for (const invigilator of invigilators) {
-      if (assignedInvigilators.length >= requiredInvigilators) break;
-      const load = invigilatorLoad.get(invigilator.id) || [];
-      const busy = load.some((item) => sameDate(item.date, assignmentTime.date) && overlaps(item.startTime, item.endTime, assignmentTime.startTime, assignmentTime.endTime));
-      if (busy || load.length >= invigilator.maxAssignments) continue;
-
-      assignedInvigilators.push(invigilator);
-      invigilatorLoad.set(invigilator.id, [...load, assignmentTime]);
-      await prisma.invigilatorAssignment.create({
-        data: { scenarioId, examId: exam.id, invigilatorId: invigilator.id },
-      });
-    }
-
-    if (assignedInvigilators.length < requiredInvigilators) {
-      warnings.push({ type: 'INVIGILATOR', examId: exam.id, message: `${exam.course.code} için yeterli gözetmen atanamadı.` });
-    }
-
-    placed.push({
-      examId: exam.id,
-      date: assignmentTime.date,
-      startTime: assignmentTime.startTime,
-      endTime: assignmentTime.endTime,
-      studentIds: students.map((student) => student.id),
-    });
+    placements.push(toPlacement(candidate));
   }
 
-  const scheduledDays = new Set(placed.map((item) => new Date(item.date).toISOString().slice(0, 10))).size;
-  const metrics = {
-    plannedExamCount: placed.length,
-    totalExamCount: exams.length,
-    scheduledDays,
-    capacityWaste,
-    warningCount: warnings.length,
-  };
-  const score = Math.max(0, 100 - scheduledDays * 4 - capacityWaste * 0.1 - warnings.length * 10);
+  const improvedPlacements = improvePlacements({ placements, classrooms, invigilators, dates, period, strategy, weights, config });
+  const conflictWarnings = validatePlacementConflicts(improvedPlacements);
+  warnings.push(...conflictWarnings);
+
+  const roomStats = [];
+  const scoreParts = [];
+  const seatRisks = { sameCourseAdjacentSeatCount: 0, sameCourseFrontBackSeatCount: 0 };
+  const specialNeeds = { handledCount: 0, warningCount: 0 };
+
+  for (const placement of improvedPlacements) {
+    const persisted = await persistPlacement(scenarioId, placement);
+    roomStats.push(persisted.roomStats);
+    scoreParts.push(placement.scoreParts);
+    seatRisks.sameCourseAdjacentSeatCount += persisted.seatResult.sameCourseAdjacentSeatCount;
+    seatRisks.sameCourseFrontBackSeatCount += persisted.seatResult.sameCourseFrontBackSeatCount;
+    specialNeeds.handledCount += persisted.seatResult.assignments.filter((item) => studentSpecialNeeds(item.student).types.length > 0 || studentSpecialNeeds(item.student).unknown.length > 0).length;
+    specialNeeds.warningCount += persisted.seatResult.missingCount;
+    warnings.push(...specialWarningsForPlacement(placement), ...seatWarnings(placement, persisted.seatResult));
+  }
+
+  const invigilatorLoad = invigilatorLoadFromPlacements(improvedPlacements);
+  const explanations = buildExplanations(improvedPlacements);
+  const metrics = buildScenarioMetrics({
+    exams,
+    placements: improvedPlacements,
+    roomStats,
+    invigilatorLoad,
+    invigilators,
+    warnings,
+    scoreParts,
+    specialNeeds,
+    seatRisks,
+    explanations,
+  });
 
   return prisma.planningScenario.update({
     where: { id: scenarioId },
-    data: { status: warnings.length ? 'COMPLETED' : 'COMPLETED', metrics, warnings, score },
+    data: { status: warnings.some((item) => item.severity === 'hard') ? 'FAILED' : 'COMPLETED', metrics, warnings, score: metrics.score },
     include: {
       period: true,
-      rooms: { include: { exam: { include: { course: true } }, classroom: true } },
-      seats: { include: { student: true, seat: true, exam: { include: { course: true } } } },
+      schedules: true,
+      roomSlots: { include: { classroom: true, assignments: { include: { exam: { include: { course: true } } } } } },
+      rooms: { include: { exam: { include: { course: true } }, classroom: true, roomSlot: true } },
+      seats: { include: { student: true, seat: true, classroom: true, exam: { include: { course: true } } } },
       invigilators: { include: { invigilator: true, exam: { include: { course: true } } } },
     },
   });
@@ -243,8 +361,10 @@ async function recheckScenario(scenarioId) {
   const scenario = await prisma.planningScenario.findUnique({
     where: { id: scenarioId },
     include: {
-      seats: { include: { student: true, exam: { include: { course: true } }, seat: true } },
-      rooms: { include: { classroom: true, exam: true } },
+      schedules: true,
+      roomSlots: true,
+      seats: { include: { student: true, seat: true, classroom: true, exam: { include: { course: true } } } },
+      rooms: { include: { classroom: true, roomSlot: true, exam: true } },
       invigilators: { include: { invigilator: true, exam: true } },
     },
   });
@@ -256,23 +376,45 @@ async function recheckScenario(scenarioId) {
 
   const warnings = [];
   const roomSlots = new Map();
-  for (const room of scenario.rooms) {
-    const key = `${room.classroomId}:${new Date(room.exam.date).toISOString().slice(0, 10)}:${room.exam.startTime}:${room.exam.endTime}`;
-    if (roomSlots.has(key)) warnings.push({ type: 'ROOM_CONFLICT', message: `${room.classroom.name} aynı zaman diliminde birden fazla sınava atanmış.` });
+  for (const slot of scenario.roomSlots) {
+    const key = `${slot.classroomId}:${new Date(slot.date).toISOString().slice(0, 10)}:${slot.startTime}:${slot.endTime}`;
+    if (roomSlots.has(key)) warnings.push(warning('ROOM_CONFLICT', 'Aynı derslik aynı zaman slotunda tekrar edilmiş.', 'hard'));
     roomSlots.set(key, true);
   }
 
-  const studentSlots = new Map();
+  const studentSlots = [];
   for (const seat of scenario.seats) {
-    const key = `${seat.studentId}:${new Date(seat.exam.date).toISOString().slice(0, 10)}:${seat.exam.startTime}:${seat.exam.endTime}`;
-    if (studentSlots.has(key)) warnings.push({ type: 'STUDENT_CONFLICT', message: `${seat.student.fullName} için sınav çakışması var.` });
-    studentSlots.set(key, true);
+    const schedule = scenario.schedules.find((item) => item.examId === seat.examId) || seat.exam;
+    if (seat.seat.classroomId !== seat.classroomId) warnings.push(warning('SEAT_CLASSROOM_MISMATCH', `${seat.student.fullName} için seat/classroom tutarsız.`, 'hard'));
+    if (studentSlots.some((item) => item.studentId === seat.studentId && sameDate(item.date, schedule.date) && overlaps(item.startTime, item.endTime, schedule.startTime, schedule.endTime))) {
+      warnings.push(warning('STUDENT_CONFLICT', `${seat.student.fullName} için sınav çakışması var.`, 'hard'));
+    }
+    studentSlots.push({ studentId: seat.studentId, date: schedule.date, startTime: schedule.startTime, endTime: schedule.endTime });
+  }
+
+  const invigilatorSlots = [];
+  const roomSlotByExamId = new Map(scenario.rooms.map((room) => [room.examId, room.roomSlotId]));
+  for (const assignment of scenario.invigilators) {
+    const schedule = scenario.schedules.find((item) => item.examId === assignment.examId) || assignment.exam;
+    const roomSlotId = roomSlotByExamId.get(assignment.examId);
+    if (
+      invigilatorSlots.some(
+        (item) =>
+          item.invigilatorId === assignment.invigilatorId &&
+          item.roomSlotId !== roomSlotId &&
+          sameDate(item.date, schedule.date) &&
+          overlaps(item.startTime, item.endTime, schedule.startTime, schedule.endTime),
+      )
+    ) {
+      warnings.push(warning('INVIGILATOR_CONFLICT', `${invigilatorDisplayName(assignment.invigilator)} için gözetmen çakışması var.`, 'hard'));
+    }
+    invigilatorSlots.push({ invigilatorId: assignment.invigilatorId, roomSlotId, date: schedule.date, startTime: schedule.startTime, endTime: schedule.endTime });
   }
 
   return prisma.planningScenario.update({
     where: { id: scenarioId },
-    data: { warnings, metrics: { ...(scenario.metrics || {}), warningCount: warnings.length } },
+    data: { status: warnings.some((item) => item.severity === 'hard') ? 'FAILED' : scenario.status, warnings, metrics: { ...(scenario.metrics || {}), warningCount: warnings.length, warnings } },
   });
 }
 
-module.exports = { recheckScenario, runScenario };
+module.exports = { buildScheduleCandidates, defaultSlots, getExamStudents, recheckScenario, runScenario, sortDatesForStrategy };

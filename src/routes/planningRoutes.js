@@ -12,7 +12,7 @@ router.post(
       data: {
         periodId: req.body.periodId,
         name: req.body.name || 'Yeni planlama senaryosu',
-        strategy: req.body.strategy || 'compact',
+        strategy: req.body.strategy || 'efficient',
       },
     });
     res.status(201).json({ success: true, data });
@@ -34,6 +34,8 @@ router.get(
       where: { id: req.params.id },
       include: {
         period: true,
+        schedules: true,
+        roomSlots: { include: { classroom: true, assignments: { include: { exam: { include: { course: true } } } } } },
         rooms: { include: { classroom: true, exam: { include: { course: true } } } },
         seats: { include: { student: true, seat: true, exam: { include: { course: true } } } },
         invigilators: { include: { invigilator: true, exam: { include: { course: true } } } },
@@ -51,6 +53,23 @@ router.post('/scenarios/:id/recheck', asyncHandler(async (req, res) => res.json(
 router.post(
   '/scenarios/:id/approve',
   asyncHandler(async (req, res) => {
+    const scenario = await prisma.planningScenario.findUnique({ where: { id: req.params.id }, include: { schedules: true } });
+    if (!scenario) return res.status(404).json({ success: false, message: 'Planlama senaryosu bulunamadı.' });
+    if (scenario.status === 'FAILED') return res.status(409).json({ success: false, message: 'Hard validasyon hatası olan senaryo onaylanamaz.' });
+    await prisma.$transaction(
+      scenario.schedules.map((schedule) =>
+        prisma.exam.update({
+          where: { id: schedule.examId },
+          data: {
+            date: schedule.date,
+            startTime: schedule.startTime,
+            endTime: schedule.endTime,
+            durationMinutes: schedule.durationMinutes,
+            status: 'APPROVED',
+          },
+        }),
+      ),
+    );
     const data = await prisma.planningScenario.update({
       where: { id: req.params.id },
       data: { status: 'APPROVED', approvedAt: new Date() },

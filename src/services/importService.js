@@ -25,6 +25,27 @@ function value(row, keys) {
   return '';
 }
 
+function numberValue(row, keys, fallback = null) {
+  const raw = value(row, keys);
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function jsonValue(row, keys) {
+  const raw = value(row, keys);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw
+      .split(/[;,]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .reduce((features, feature) => ({ ...features, [feature]: true }), {});
+  }
+}
+
 async function importStudents(file) {
   const rows = readRows(file);
   const errors = [];
@@ -104,6 +125,9 @@ async function importCourses(file) {
         department: value(row, ['department', 'bolum', 'Bölüm']) || null,
         studentCount: Number(value(row, ['studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı'])) || 0,
         durationMinutes: Number(value(row, ['durationMinutes', 'sure', 'Süre'])) || 120,
+        requiredRoomType: value(row, ['requiredRoomType', 'roomType', 'derslikTipi', 'Derslik Tipi']) || null,
+        requiredFeatures: jsonValue(row, ['requiredFeatures', 'features', 'ozellikler', 'Özellikler']),
+        specialRules: jsonValue(row, ['specialRules', 'kurallar', 'Kurallar']),
       },
       create: {
         code,
@@ -112,6 +136,9 @@ async function importCourses(file) {
         department: value(row, ['department', 'bolum', 'Bölüm']) || null,
         studentCount: Number(value(row, ['studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı'])) || 0,
         durationMinutes: Number(value(row, ['durationMinutes', 'sure', 'Süre'])) || 120,
+        requiredRoomType: value(row, ['requiredRoomType', 'roomType', 'derslikTipi', 'Derslik Tipi']) || null,
+        requiredFeatures: jsonValue(row, ['requiredFeatures', 'features', 'ozellikler', 'Özellikler']),
+        specialRules: jsonValue(row, ['specialRules', 'kurallar', 'Kurallar']),
       },
     });
     successRows += 1;
@@ -136,11 +163,22 @@ async function importClassrooms(file) {
     }
     const classroom = await prisma.classroom.upsert({
       where: { code },
-      update: { name, capacity, building: value(row, ['building', 'bina', 'Bina']) || null, floor: value(row, ['floor', 'kat', 'Kat']) || null },
+      update: {
+        name,
+        capacity,
+        examCapacity: numberValue(row, ['examCapacity', 'sinavKapasitesi', 'Sınav Kapasitesi']),
+        roomType: value(row, ['roomType', 'derslikTipi', 'Derslik Tipi']) || null,
+        features: jsonValue(row, ['features', 'ozellikler', 'Özellikler']),
+        building: value(row, ['building', 'bina', 'Bina']) || null,
+        floor: value(row, ['floor', 'kat', 'Kat']) || null,
+      },
       create: {
         code,
         name,
         capacity,
+        examCapacity: numberValue(row, ['examCapacity', 'sinavKapasitesi', 'Sınav Kapasitesi']),
+        roomType: value(row, ['roomType', 'derslikTipi', 'Derslik Tipi']) || null,
+        features: jsonValue(row, ['features', 'ozellikler', 'Özellikler']),
         building: value(row, ['building', 'bina', 'Bina']) || null,
         floor: value(row, ['floor', 'kat', 'Kat']) || null,
         rowCount: Math.ceil(capacity / 6),
@@ -183,8 +221,27 @@ async function importInvigilators(file) {
     }
     await prisma.invigilator.upsert({
       where: { staffNo },
-      update: { firstName, lastName, title: value(row, ['title', 'unvan', 'Unvan']) || null, email: value(row, ['email', 'Email']) || null, department: value(row, ['department', 'bolum', 'Bölüm']) || null },
-      create: { staffNo, firstName, lastName, title: value(row, ['title', 'unvan', 'Unvan']) || null, email: value(row, ['email', 'Email']) || null, department: value(row, ['department', 'bolum', 'Bölüm']) || null },
+      update: {
+        firstName,
+        lastName,
+        title: value(row, ['title', 'unvan', 'Unvan']) || null,
+        email: value(row, ['email', 'Email']) || null,
+        department: value(row, ['department', 'bolum', 'Bölüm']) || null,
+        maxAssignments: numberValue(row, ['maxAssignments', 'maksGorev', 'Maks Görev'], 4),
+        priority: numberValue(row, ['priority', 'oncelik', 'Öncelik'], 0),
+        constraints: jsonValue(row, ['constraints', 'kisitlar', 'Kısıtlar']),
+      },
+      create: {
+        staffNo,
+        firstName,
+        lastName,
+        title: value(row, ['title', 'unvan', 'Unvan']) || null,
+        email: value(row, ['email', 'Email']) || null,
+        department: value(row, ['department', 'bolum', 'Bölüm']) || null,
+        maxAssignments: numberValue(row, ['maxAssignments', 'maksGorev', 'Maks Görev'], 4),
+        priority: numberValue(row, ['priority', 'oncelik', 'Öncelik'], 0),
+        constraints: jsonValue(row, ['constraints', 'kisitlar', 'Kısıtlar']),
+      },
     });
     successRows += 1;
   }

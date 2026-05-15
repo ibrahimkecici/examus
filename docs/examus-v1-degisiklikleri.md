@@ -19,7 +19,7 @@ Eklenen ana modüller:
 - Kullanıcı yönetimi: `ADMIN`, `DEPARTMENT_MANAGER`, `INSTRUCTOR`, `INVIGILATOR`, `STUDENT` rolleri.
 - Veri yönetimi: öğrenci, ders, derslik, gözetmen, sınav ve sınav dönemi CRUD endpointleri.
 - Veri içe aktarma: CSV/XLSX öğrenci, ders, derslik ve gözetmen importu.
-- Planlama: sınav dönemi üzerinden senaryo oluşturma, greedy planlama çalıştırma, onaylama ve yeniden çakışma kontrolü.
+- Planlama: sınav dönemi üzerinden senaryo oluşturma, skor tabanlı planlama çalıştırma, onaylama ve yeniden çakışma kontrolü.
 - Oturma düzeni: derslik koltuk/sıra modeli ve öğrenci-sıra atamaları.
 - Gözetmen atama: sınav ve senaryo bazlı gözetmen görevlendirme.
 - AI önerileri: `AI_PROVIDER=openai` ve `AI_API_KEY` ile LLM kullanımı; anahtar yoksa deterministic heuristic fallback.
@@ -86,12 +86,69 @@ Prisma ana tabloları:
 - `ExamPeriod`
 - `Exam`
 - `PlanningScenario`
+- `ScenarioExamSchedule`
+- `ExamRoomSlot`
 - `ExamRoomAssignment`
 - `SeatAssignment`
 - `InvigilatorAssignment`
 - `ImportBatch`
 - `AiInsight`
 - `AuditLog`
+
+## Planlama Motoru Güncellemesi
+
+Planlama motoru tek adımlı “ilk uygun atama” yaklaşımından ayrıldı. Yeni akışta sınav grubu, zaman dilimi, derslik ve gözetmen kombinasyonları skorlanır; hard constraint ihlali olan adaylar elenir.
+
+Uygulanan kontroller:
+
+- Aynı öğrencinin aynı saat aralığında iki sınavı olamaz.
+- Aynı derslik aynı saat aralığında iki sınava atanamaz.
+- Aynı gözetmen aynı saat aralığında iki göreve atanamaz.
+- Derslik kapasitesi yetersizse aday geçersizdir.
+- Gözetmen `maxAssignments` sınırı ve varsa availability kayıtları dikkate alınır.
+- Gereksiz boş kapasite, büyük dersliği küçük sınava verme ve öğrenci günlük sınav yığılması cezalandırılır.
+- `fair_invigilator` stratejisinde gözetmen yük dengesine daha yüksek ağırlık verilir.
+- `efficient`, `compact`, `balanced`, `minimum_rooms`, `fair_invigilator` ve `student_friendly` stratejileri aday skorlarını farklı ağırlıklarla etkiler.
+
+Senaryo bazlı tarih/saat planı için `ScenarioExamSchedule` modeli eklendi. Bu sayede farklı senaryolar aynı sınavlar için farklı zaman planları üretebilir. `Exam.date`, `Exam.startTime` ve `Exam.endTime` alanları onaylanan final plan için güncellenir.
+
+Karma salon desteği için `ExamRoomSlot` modeli eklendi. Aynı süreli, ortak öğrencisi olmayan ve `requiresDedicatedRoom=true` olmayan küçük sınavlar aynı derslik slotunda birleştirilebilir. Karma salonlarda koltuklar ders kodlarına göre dönüşümlü yerleştirilir ve aynı ders öğrencilerinin yan yana/ön-arka kalması metriklere yazılır.
+
+`PlanningScenario.metrics` artık şu kalite metriklerini içerir:
+
+```json
+{
+  "score": 0,
+  "usedDayCount": 0,
+  "usedRoomCount": 0,
+  "usedRoomSlotCount": 0,
+  "studentConflictCount": 0,
+  "roomConflictCount": 0,
+  "invigilatorConflictCount": 0,
+  "averageRoomUtilization": 0,
+  "totalUnusedCapacity": 0,
+  "invigilatorLoadDistribution": {},
+  "specialNeedsHandledCount": 0,
+  "specialNeedsWarningCount": 0,
+  "mixedRoomCount": 0,
+  "roomsSavedByMixing": 0,
+  "invigilatorsSavedByMixing": 0,
+  "averageMixedRoomUtilization": 0,
+  "sameCourseAdjacentSeatCount": 0,
+  "sameCourseFrontBackSeatCount": 0,
+  "scoreBreakdown": {},
+  "explanations": [],
+  "warnings": []
+}
+```
+
+## Rapor Kolonları
+
+Excel çıktısındaki sayfalar genişletildi:
+
+- `Genel Takvim`: tarih, saat, derslik, karma salon durumu, ders kodları/adları, süre, kapasite, atanan öğrenci, doluluk oranı, gözetmenler, özel ihtiyaç özeti ve uyarılar.
+- `Oturma Planı`: tarih, saat, derslik kodu/adı, koltuk/sıra, öğrenci no/adı, ders kodu/adı, özel ihtiyaç ve not.
+- `Gözetmenler`: gözetmen, sicil no, tarih, saat, derslik, karma salon durumu, dersler, rol, günlük görev sayısı, toplam görev sayısı ve özel ihtiyaç notları.
 
 ## Çalıştırma Akışı
 

@@ -87,6 +87,8 @@ model Course {
   durationMinutes Int      @default(120)
   examType        ExamType @default(FINAL)
   specialRules    Json?
+  requiredRoomType String?
+  requiredFeatures Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -115,6 +117,9 @@ model Classroom {
   block        String?
   floor        String?
   capacity     Int
+  examCapacity Int?
+  roomType     String?
+  features     Json?
   rowCount     Int      @default(1)
   columnCount  Int      @default(1)
   layoutType   String   @default("TEKLI")
@@ -124,6 +129,8 @@ model Classroom {
 
   seats           Seat[]
   roomAssignments ExamRoomAssignment[]
+  roomSlots       ExamRoomSlot[]
+  seatAssignments SeatAssignment[]
 }
 
 model Seat {
@@ -201,6 +208,8 @@ model Exam {
   maxRooms        Int?
   pinned          Boolean  @default(false)
   specialRules    Json?
+  requiredRoomType String?
+  requiredFeatures Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -209,6 +218,7 @@ model Exam {
   roomAssignments ExamRoomAssignment[]
   seatAssignments SeatAssignment[]
   invigilators    InvigilatorAssignment[]
+  scenarioSchedules ScenarioExamSchedule[]
 }
 
 model PlanningScenario {
@@ -226,9 +236,42 @@ model PlanningScenario {
 
   period       ExamPeriod           @relation(fields: [periodId], references: [id], onDelete: Cascade)
   rooms        ExamRoomAssignment[]
+  roomSlots    ExamRoomSlot[]
   seats        SeatAssignment[]
   invigilators InvigilatorAssignment[]
+  schedules    ScenarioExamSchedule[]
   insights     AiInsight[]
+}
+
+model ScenarioExamSchedule {
+  id              String   @id @default(cuid())
+  scenarioId      String
+  examId          String
+  date            DateTime
+  startTime       String
+  endTime         String
+  durationMinutes Int
+
+  scenario PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  exam     Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@unique([scenarioId, examId])
+}
+
+model ExamRoomSlot {
+  id          String   @id @default(cuid())
+  scenarioId  String
+  classroomId String
+  date        DateTime
+  startTime   String
+  endTime     String
+  mixed       Boolean  @default(false)
+
+  scenario    PlanningScenario    @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  classroom   Classroom           @relation(fields: [classroomId], references: [id])
+  assignments ExamRoomAssignment[]
+
+  @@unique([scenarioId, classroomId, date, startTime, endTime])
 }
 
 model ExamRoomAssignment {
@@ -236,13 +279,15 @@ model ExamRoomAssignment {
   scenarioId  String
   examId      String
   classroomId String
+  roomSlotId  String?
   assignedCount Int @default(0)
 
   scenario  PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
   exam      Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
   classroom Classroom        @relation(fields: [classroomId], references: [id])
+  roomSlot  ExamRoomSlot?    @relation(fields: [roomSlotId], references: [id], onDelete: Cascade)
 
-  @@unique([scenarioId, examId, classroomId])
+  @@unique([scenarioId, examId, classroomId, roomSlotId])
 }
 
 model SeatAssignment {
@@ -257,6 +302,7 @@ model SeatAssignment {
   scenario PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
   exam     Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
   student  Student          @relation(fields: [studentId], references: [id])
+  classroom Classroom        @relation(fields: [classroomId], references: [id])
   seat     Seat             @relation(fields: [seatId], references: [id])
 
   @@unique([scenarioId, examId, studentId])

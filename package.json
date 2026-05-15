@@ -8,6 +8,7 @@
     "dev": "node index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "db:reset": "prisma migrate reset --force",
     "test": "node --test"
   },
   "keywords": [],
