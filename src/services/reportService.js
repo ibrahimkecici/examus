@@ -1,9 +1,12 @@
+const path = require('path');
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 const prisma = require('../config/prisma');
 const { sameDate } = require('../utils/time');
 const { activeSeatCapacity } = require('./planning/roomAllocator');
 const { groupSpecialNeedSummary, specialNeedNote } = require('./planning/specialNeeds');
+
+const FONT_PATH = path.join(__dirname, '..', 'assets', 'fonts', 'NotoSans-Regular.ttf');
 
 async function getScenarioReportData(scenarioId) {
   const scenario = await prisma.planningScenario.findUnique({
@@ -206,20 +209,22 @@ async function buildCalendarWorkbook(scenarioId) {
 async function streamPdf(scenarioId, res) {
   const scenario = await getScenarioReportData(scenarioId);
   const doc = new PDFDocument({ margin: 40 });
+  doc.registerFont('Font', FONT_PATH);
+  const font = doc.font('Font');
   doc.pipe(res);
-  doc.fontSize(18).text(`Examus Sınav Planı: ${scenario.name}`);
+  font.fontSize(18).text(`Examus Sınav Planı: ${scenario.name}`);
   doc.moveDown();
-  doc.fontSize(10).text(`Skor: ${scenario.score} | Durum: ${scenario.status}`);
+  font.fontSize(10).text(`Skor: ${scenario.score} | Durum: ${scenario.status}`);
   doc.moveDown();
 
   for (const slot of scenario.roomSlots) {
     const assignments = slotAssignments(scenario, slot);
     const seats = slotSeatAssignments(scenario, slot);
     const capacity = activeSeatCapacity(slot.classroom);
-    doc.fontSize(12).text(`${slot.classroom.code} ${slot.classroom.name} ${slot.mixed ? '(Karma)' : ''}`);
-    doc.fontSize(10).text(`${slot.date.toISOString().slice(0, 10)} ${slot.startTime}-${slot.endTime} | ${assignments.map((item) => item.exam.course.code).join(', ')} | ${seats.length}/${capacity} öğrenci`);
+    font.fontSize(12).text(`${slot.classroom.code} ${slot.classroom.name} ${slot.mixed ? '(Karma)' : ''}`);
+    font.fontSize(10).text(`${slot.date.toISOString().slice(0, 10)} ${slot.startTime}-${slot.endTime} | ${assignments.map((item) => item.exam.course.code).join(', ')} | ${seats.length}/${capacity} öğrenci`);
     const warnings = warningTextForSlot(scenario, slot);
-    if (warnings) doc.fontSize(9).text(`Uyarılar: ${warnings}`);
+    if (warnings) font.fontSize(9).text(`Uyarılar: ${warnings}`);
     doc.moveDown(0.5);
   }
 

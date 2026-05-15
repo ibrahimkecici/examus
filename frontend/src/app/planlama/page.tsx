@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import DataTable from '@/components/DataTable';
 import StatusPill from '@/components/StatusPill';
 import { apiFetch } from '@/lib/api';
@@ -75,13 +76,14 @@ export default function PlanningPage() {
       <DataTable
         columns={['Ad', 'Dönem', 'Strateji', 'Durum', 'Skor', 'Aksiyon']}
         rows={scenarios.map((scenario) => [
-          scenario.name,
+          <Link key={scenario.id} href={`/planlama/${scenario.id}`} className="font-medium text-blue-600 hover:underline">{scenario.name}</Link>,
           scenario.period?.name || '-',
           scenario.strategy,
           <StatusPill key={scenario.id} tone={scenario.status === 'APPROVED' ? 'green' : scenario.status === 'COMPLETED' ? 'blue' : 'slate'}>{scenario.status}</StatusPill>,
           Math.round(scenario.score),
           <div key={scenario.id} className="flex flex-wrap gap-2">
-            <button onClick={() => run(scenario.id)} className="rounded-md border px-2 py-1 text-sm">Çalıştır</button>
+            <Link href={`/planlama/${scenario.id}`} className="rounded-md border px-2 py-1 text-sm">Detay</Link>
+            <button onClick={() => run(scenario.id)} className="rounded-md border px-2 py-1 text-sm">Calistir</button>
             <button onClick={() => insight(scenario.id)} className="rounded-md border px-2 py-1 text-sm">AI</button>
             <button onClick={() => approve(scenario.id)} className="rounded-md border px-2 py-1 text-sm">Onayla</button>
           </div>,

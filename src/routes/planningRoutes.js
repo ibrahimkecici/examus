@@ -37,7 +37,7 @@ router.get(
         schedules: true,
         roomSlots: { include: { classroom: true, assignments: { include: { exam: { include: { course: true } } } } } },
         rooms: { include: { classroom: true, exam: { include: { course: true } } } },
-        seats: { include: { student: true, seat: true, exam: { include: { course: true } } } },
+        seats: { include: { student: true, seat: true, exam: { include: { course: true } }, classroom: true } },
         invigilators: { include: { invigilator: true, exam: { include: { course: true } } } },
         insights: true,
       },
