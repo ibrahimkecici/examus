@@ -32,6 +32,19 @@ function numberValue(row, keys, fallback = null) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function bookletValue(row, keys) {
+  const raw = value(row, keys);
+  if (!raw) return null;
+  // Accept JSON array, comma-separated, or slash-separated: "A,B" / "A/B/C/D" / ["A","B"]
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+  } catch {
+    // ignore
+  }
+  return raw.split(/[,\/]/).map((s) => s.trim().toUpperCase()).filter(Boolean);
+}
+
 function jsonValue(row, keys) {
   const raw = value(row, keys);
   if (!raw) return null;
@@ -117,29 +130,21 @@ async function importCourses(file) {
       continue;
     }
 
+    const courseData = {
+      name,
+      instructorName: value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']) || null,
+      department: value(row, ['department', 'bolum', 'Bölüm']) || null,
+      studentCount: Number(value(row, ['studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı'])) || 0,
+      durationMinutes: Number(value(row, ['durationMinutes', 'sure', 'Süre'])) || 120,
+      requiredRoomType: value(row, ['requiredRoomType', 'roomType', 'derslikTipi', 'Derslik Tipi']) || null,
+      requiredFeatures: jsonValue(row, ['requiredFeatures', 'features', 'ozellikler', 'Özellikler']),
+      specialRules: jsonValue(row, ['specialRules', 'kurallar', 'Kurallar']),
+      bookletTypes: bookletValue(row, ['bookletTypes', 'kitapciklar', 'Kitapçıklar', 'kitapçıklar']),
+    };
     await prisma.course.upsert({
       where: { code },
-      update: {
-        name,
-        instructorName: value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']) || null,
-        department: value(row, ['department', 'bolum', 'Bölüm']) || null,
-        studentCount: Number(value(row, ['studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı'])) || 0,
-        durationMinutes: Number(value(row, ['durationMinutes', 'sure', 'Süre'])) || 120,
-        requiredRoomType: value(row, ['requiredRoomType', 'roomType', 'derslikTipi', 'Derslik Tipi']) || null,
-        requiredFeatures: jsonValue(row, ['requiredFeatures', 'features', 'ozellikler', 'Özellikler']),
-        specialRules: jsonValue(row, ['specialRules', 'kurallar', 'Kurallar']),
-      },
-      create: {
-        code,
-        name,
-        instructorName: value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']) || null,
-        department: value(row, ['department', 'bolum', 'Bölüm']) || null,
-        studentCount: Number(value(row, ['studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı'])) || 0,
-        durationMinutes: Number(value(row, ['durationMinutes', 'sure', 'Süre'])) || 120,
-        requiredRoomType: value(row, ['requiredRoomType', 'roomType', 'derslikTipi', 'Derslik Tipi']) || null,
-        requiredFeatures: jsonValue(row, ['requiredFeatures', 'features', 'ozellikler', 'Özellikler']),
-        specialRules: jsonValue(row, ['specialRules', 'kurallar', 'Kurallar']),
-      },
+      update: courseData,
+      create: { code, ...courseData },
     });
     successRows += 1;
   }

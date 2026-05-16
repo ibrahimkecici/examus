@@ -6,11 +6,11 @@ const { buildExplanations } = require('./planning/explanationBuilder');
 const { invigilatorDisplayName } = require('./planning/invigilatorAllocator');
 const { buildScenarioMetrics } = require('./planning/metricsBuilder');
 const { buildPlanningGroups } = require('./planning/mixedRoomPlanner');
-const { activeSeatCapacity, buildRoomCandidates } = require('./planning/roomAllocator');
+const { activeSeatCapacity, buildRoomCandidates, getEffectiveCapacity } = require('./planning/roomAllocator');
 const { evaluatePlacementCandidate } = require('./planning/scenarioScorer');
-const { allocateSeatsForRoom } = require('./planning/seatAllocator');
+const { allocateSeatsForRoom, examHasMultipleBooklets } = require('./planning/seatAllocator');
 const { groupSpecialNeedSummary, requiresExtraTime, studentSpecialNeeds } = require('./planning/specialNeeds');
-const { validatePlacementConflicts, warning } = require('./planning/validationService');
+const { validatePlacementConflicts, validateSameCourseHorizontalAdjacency, validateSameCourseDiagonalAdjacency, validateSingleCourseColumnSpacing, validateBooklets, validateExamCoverage, warning } = require('./planning/validationService');
 
 function defaultSlots(period) {
   if (Array.isArray(period.slots) && period.slots.length > 0) return period.slots;
@@ -183,80 +183,137 @@ function specialWarningsForPlacement(placement) {
 
 function seatWarnings(placement, seatResult) {
   const warnings = [];
-  if (seatResult.sameCourseAdjacentSeatCount > 0) {
-    warnings.push(warning('SAME_COURSE_ADJACENT_SEAT', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} karma salonda aynı ders öğrencileri yan yana kaldı.`, 'soft'));
+  for (const msg of seatResult.strategyWarnings || []) {
+    warnings.push(warning('SEATING_STRATEGY', msg, 'soft'));
   }
-  if (seatResult.sameCourseFrontBackSeatCount > 0) {
-    warnings.push(warning('SAME_COURSE_FRONT_BACK_SEAT', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} karma salonda aynı ders öğrencileri ön-arka kaldı.`, 'soft'));
+  if (seatResult.sameCourseAdjacentSeatCount > 0) {
+    warnings.push(warning('SAME_COURSE_ADJACENT_SEAT', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} salonunda aynı ders öğrencileri yan yana kaldı.`, 'soft'));
+  }
+  if (seatResult.sameCourseSameBookletFrontBackAvoidableCount > 0) {
+    warnings.push(warning('SAME_COURSE_FRONT_BACK_AVOIDABLE', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} salonunda aynı kitapçıklı öğrenciler önde-arkada kaldı (kitapçık ataması iyileştirilebilir).`, 'soft'));
+  }
+  if (seatResult.sameCourseSameBookletFrontBackUnavoidableCount > 0) {
+    warnings.push(warning('SAME_COURSE_FRONT_BACK_UNAVOIDABLE', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} salonunda tek kitapçıklı sınav olduğundan aynı ders öğrencileri ön-arka bitişik.`, 'soft'));
+  }
+  if (seatResult.missingCount > 0) {
+    warnings.push(warning('SEAT_CAPACITY_OVERFLOW', `${seatResult.missingCount} öğrenci için yeterli koltuk bulunamadı.`, 'hard'));
   }
   return warnings;
 }
 
 async function persistPlacement(scenarioId, placement) {
-  const room = placement.rooms[0];
-  const roomSlot = await prisma.examRoomSlot.create({
-    data: {
-      scenarioId,
-      classroomId: room.id,
-      date: placement.date,
-      startTime: placement.startTime,
-      endTime: placement.endTime,
-      mixed: placement.group.mixed,
-    },
-  });
+  const roomStats = [];
+  const allSeatAssignments = [];
+  const strategyWarnings = [];
+  let totalSameCourseAdjacentSeatCount = 0;
+  let totalSameCourseSameBookletFrontBackAvoidableCount = 0;
+  let totalSameCourseSameBookletFrontBackUnavoidableCount = 0;
+  const assignedStudentIds = new Set();
+  const schedulesCreated = new Map();
+  const invigilatorsCreated = new Map();
 
-  const seatResult = allocateSeatsForRoom(room, placement.group.examGroups);
-  const assignedByExam = new Map();
-  for (const assignment of seatResult.assignments) {
-    assignedByExam.set(assignment.exam.id, (assignedByExam.get(assignment.exam.id) || 0) + 1);
-    await prisma.seatAssignment.create({
+  for (const room of placement.rooms) {
+    const roomSlot = await prisma.examRoomSlot.create({
       data: {
         scenarioId,
-        examId: assignment.exam.id,
-        studentId: assignment.student.id,
         classroomId: room.id,
-        seatId: assignment.seat.id,
-      },
-    });
-  }
-
-  for (const group of placement.group.examGroups) {
-    await prisma.scenarioExamSchedule.create({
-      data: {
-        scenarioId,
-        examId: group.exam.id,
         date: placement.date,
         startTime: placement.startTime,
         endTime: placement.endTime,
-        durationMinutes: group.exam.durationMinutes,
+        mixed: placement.group.mixed,
       },
     });
-    await prisma.exam.update({ where: { id: group.exam.id }, data: { status: 'PLANNED' } });
-    await prisma.examRoomAssignment.create({
-      data: {
-        scenarioId,
-        examId: group.exam.id,
-        classroomId: room.id,
-        roomSlotId: roomSlot.id,
-        assignedCount: assignedByExam.get(group.exam.id) || 0,
-      },
-    });
-    for (const invigilator of placement.invigilators) {
-      await prisma.invigilatorAssignment.create({
-        data: { scenarioId, examId: group.exam.id, invigilatorId: invigilator.id },
+
+    const remainingGroups = placement.group.examGroups.map((group) => ({
+      ...group,
+      students: group.students.filter((s) => !assignedStudentIds.has(s.id)),
+    }));
+    const totalRemaining = remainingGroups.reduce((sum, g) => sum + g.students.length, 0);
+    if (totalRemaining === 0) break;
+
+    const seatResult = allocateSeatsForRoom(room, remainingGroups);
+    strategyWarnings.push(...(seatResult.strategyWarnings || []));
+    totalSameCourseAdjacentSeatCount += seatResult.sameCourseAdjacentSeatCount || 0;
+    totalSameCourseSameBookletFrontBackAvoidableCount += seatResult.sameCourseSameBookletFrontBackAvoidableCount || 0;
+    totalSameCourseSameBookletFrontBackUnavoidableCount += seatResult.sameCourseSameBookletFrontBackUnavoidableCount || 0;
+
+    const assignedByExam = new Map();
+    for (const assignment of seatResult.assignments) {
+      assignedStudentIds.add(assignment.student.id);
+      assignedByExam.set(assignment.exam.id, (assignedByExam.get(assignment.exam.id) || 0) + 1);
+      allSeatAssignments.push({ ...assignment, examId: assignment.exam.id });
+      await prisma.seatAssignment.create({
+        data: {
+          scenarioId,
+          examId: assignment.exam.id,
+          studentId: assignment.student.id,
+          classroomId: room.id,
+          seatId: assignment.seat.id,
+          bookletType: assignment.bookletType || null,
+        },
       });
     }
-  }
 
-  return {
-    roomSlot,
-    seatResult,
-    roomStats: {
+    for (const group of placement.group.examGroups) {
+      const scheduleKey = `${scenarioId}:${group.exam.id}`;
+      if (!schedulesCreated.has(scheduleKey)) {
+        schedulesCreated.set(scheduleKey, true);
+        await prisma.scenarioExamSchedule.create({
+          data: {
+            scenarioId,
+            examId: group.exam.id,
+            date: placement.date,
+            startTime: placement.startTime,
+            endTime: placement.endTime,
+            durationMinutes: group.exam.durationMinutes,
+          },
+        });
+      }
+      await prisma.exam.update({ where: { id: group.exam.id }, data: { status: 'PLANNED' } });
+      const perRoomCount = assignedByExam.get(group.exam.id) || 0;
+      if (perRoomCount > 0) {
+        await prisma.examRoomAssignment.create({
+          data: {
+            scenarioId,
+            examId: group.exam.id,
+            classroomId: room.id,
+            roomSlotId: roomSlot.id,
+            assignedCount: perRoomCount,
+          },
+        });
+      }
+      const invigKey = (invigilator) => `${scenarioId}:${group.exam.id}:${invigilator.id}`;
+      for (const invigilator of placement.invigilators) {
+        if (!invigilatorsCreated.has(invigKey(invigilator))) {
+          invigilatorsCreated.set(invigKey(invigilator), true);
+          await prisma.invigilatorAssignment.create({
+            data: { scenarioId, examId: group.exam.id, invigilatorId: invigilator.id },
+          });
+        }
+      }
+    }
+
+    const isSingleCourse = remainingGroups.length === 1;
+    const multiBooklet = isSingleCourse && examHasMultipleBooklets(remainingGroups[0].exam);
+    roomStats.push({
       roomId: room.id,
       roomSlotId: roomSlot.id,
       mixed: placement.group.mixed,
       capacity: activeSeatCapacity(room),
+      effectiveCapacity: getEffectiveCapacity(room, isSingleCourse, multiBooklet),
       assignedCount: seatResult.assignments.length,
+    });
+  }
+
+  return {
+    roomStats,
+    seatResult: {
+      assignments: allSeatAssignments,
+      strategyWarnings,
+      sameCourseAdjacentSeatCount: totalSameCourseAdjacentSeatCount,
+      sameCourseSameBookletFrontBackAvoidableCount: totalSameCourseSameBookletFrontBackAvoidableCount,
+      sameCourseSameBookletFrontBackUnavoidableCount: totalSameCourseSameBookletFrontBackUnavoidableCount,
+      missingCount: placement.group.students.length - allSeatAssignments.length,
     },
   };
 }
@@ -314,18 +371,50 @@ async function runScenario(scenarioId) {
 
   const roomStats = [];
   const scoreParts = [];
-  const seatRisks = { sameCourseAdjacentSeatCount: 0, sameCourseFrontBackSeatCount: 0 };
+  const seatRisks = { sameCourseAdjacentSeatCount: 0, sameCourseSameBookletFrontBackAvoidableCount: 0, sameCourseSameBookletFrontBackUnavoidableCount: 0 };
   const specialNeeds = { handledCount: 0, warningCount: 0 };
+  const allPersistedAssignments = [];
 
   for (const placement of improvedPlacements) {
     const persisted = await persistPlacement(scenarioId, placement);
-    roomStats.push(persisted.roomStats);
+    roomStats.push(...(Array.isArray(persisted.roomStats) ? persisted.roomStats : [persisted.roomStats]));
     scoreParts.push(placement.scoreParts);
     seatRisks.sameCourseAdjacentSeatCount += persisted.seatResult.sameCourseAdjacentSeatCount;
-    seatRisks.sameCourseFrontBackSeatCount += persisted.seatResult.sameCourseFrontBackSeatCount;
+    seatRisks.sameCourseSameBookletFrontBackAvoidableCount += persisted.seatResult.sameCourseSameBookletFrontBackAvoidableCount;
+    seatRisks.sameCourseSameBookletFrontBackUnavoidableCount += persisted.seatResult.sameCourseSameBookletFrontBackUnavoidableCount;
     specialNeeds.handledCount += persisted.seatResult.assignments.filter((item) => studentSpecialNeeds(item.student).types.length > 0 || studentSpecialNeeds(item.student).unknown.length > 0).length;
     specialNeeds.warningCount += persisted.seatResult.missingCount;
     warnings.push(...specialWarningsForPlacement(placement), ...seatWarnings(placement, persisted.seatResult));
+    if (placement.rooms.length > 1) {
+      warnings.push(warning('MULTI_ROOM_SPLIT', `${placement.group.examGroups.map((g) => g.course.code).join(', ')} ${placement.rooms.length} dersliğe bölündü (emniyetli kapasite yetersiz).`, 'soft'));
+    }
+    allPersistedAssignments.push(...persisted.seatResult.assignments);
+  }
+
+  if (allPersistedAssignments.length > 0) {
+    warnings.push(...validateSameCourseHorizontalAdjacency(allPersistedAssignments, 'hard'));
+    warnings.push(...validateSameCourseDiagonalAdjacency(allPersistedAssignments, 'hard'));
+    warnings.push(...validateSingleCourseColumnSpacing(allPersistedAssignments));
+    warnings.push(...validateBooklets(allPersistedAssignments));
+  }
+
+  // Coverage validation: every enrolled student must have exactly one seat assignment
+  warnings.push(...validateExamCoverage(exams, allPersistedAssignments));
+
+  // Fix assignedCount on ExamRoomAssignment: recompute from actual SeatAssignment rows
+  // (in-memory allPersistedAssignments already reflects DB reality)
+  const assignedPerExamRoom = new Map(); // `${examId}:${classroomId}` -> Set<studentId>
+  for (const a of allPersistedAssignments) {
+    const key = `${a.examId}:${a.seat.classroomId || a.classroomId}`;
+    if (!assignedPerExamRoom.has(key)) assignedPerExamRoom.set(key, new Set());
+    assignedPerExamRoom.get(key).add(a.student.id);
+  }
+  for (const [key, studentIds] of assignedPerExamRoom) {
+    const [examId, classroomId] = key.split(':');
+    await prisma.examRoomAssignment.updateMany({
+      where: { scenarioId, examId, classroomId },
+      data: { assignedCount: studentIds.size },
+    });
   }
 
   const invigilatorLoad = invigilatorLoadFromPlacements(improvedPlacements);
@@ -341,6 +430,7 @@ async function runScenario(scenarioId) {
     specialNeeds,
     seatRisks,
     explanations,
+    seatAssignments: allPersistedAssignments,
   });
 
   return prisma.planningScenario.update({

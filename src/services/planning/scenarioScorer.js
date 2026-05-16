@@ -38,8 +38,11 @@ function evaluatePlacementCandidate({ group, schedule, roomCandidate, invigilato
   const mixedBonus = group.mixed ? weights.mixedRoomEfficiencyBonus + Math.max(0, group.exams.length - 1) * weights.roomCountPenalty : 0;
   const roomScore = roomCandidate.score;
   const invigilatorScore = invigilatorSelection.score;
-  const score = roomScore + invigilatorScore + studentLoadPenalty + timePenalty - mixedBonus;
+  const multiRoomPenalty = Math.max(0, (roomCandidate.rooms.length - 1)) * weights.roomCountPenalty * 3;
+  const score = roomScore + invigilatorScore + studentLoadPenalty + timePenalty - mixedBonus + multiRoomPenalty;
 
+  const capDisplay = roomCandidate.usedSafeCapacity ? `${roomCandidate.totalCapacity} emniyetli` : roomCandidate.totalCapacity;
+  const roomLabel = roomCandidate.rooms.map((r) => r.code).join(' + ');
   return {
     valid: true,
     group,
@@ -49,7 +52,7 @@ function evaluatePlacementCandidate({ group, schedule, roomCandidate, invigilato
     invigilators: invigilatorSelection.invigilators,
     score,
     scoreParts: {
-      roomEfficiency: roomScore,
+      roomEfficiency: roomScore + multiRoomPenalty,
       invigilatorFairness: invigilatorScore,
       studentLoadBalance: studentLoadPenalty,
       timeEfficiency: timePenalty,
@@ -57,8 +60,8 @@ function evaluatePlacementCandidate({ group, schedule, roomCandidate, invigilato
       specialNeedsCompliance: 0,
     },
     explanation: group.mixed
-      ? `${group.examGroups.map((item) => item.course.code).join(', ')} karma salona aday oldu; ortak öğrenci yok ve ${activeSeatCapacity(classroom)} kapasiteli ${classroom.code} doluluğu artırıyor.`
-      : `${group.examGroups[0].course.code}, ${classroom.code} dersliğine aday oldu çünkü ${group.students.length} öğrenci için uygun kapasite sağlıyor.`,
+      ? `${group.examGroups.map((item) => item.course.code).join(', ')} karma salona aday oldu; ortak öğrenci yok ve ${capDisplay} kapasiteli ${roomLabel} doluluğu artırıyor.`
+      : `${group.examGroups[0].course.code}, ${roomLabel} dersliğine aday oldu çünkü ${group.students.length} öğrenci için uygun kapasite sağlıyor.`,
   };
 }
 

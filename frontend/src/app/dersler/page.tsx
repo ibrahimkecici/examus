@@ -2,13 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import DataTable from '@/components/DataTable';
+import Modal, { ConfirmDialog } from '@/components/Modal';
 import { apiFetch } from '@/lib/api';
 
 type Course = { id: string; code: string; name: string; instructorName?: string; studentCount: number; durationMinutes: number; examType: string };
 
+const emptyForm = { code: '', name: '', instructorName: '', studentCount: '0', durationMinutes: '120' };
+
 export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
-  const [form, setForm] = useState({ code: '', name: '', instructorName: '', studentCount: '0', durationMinutes: '120' });
+  const [form, setForm] = useState(emptyForm);
+  const [editTarget, setEditTarget] = useState<Course | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Course | null>(null);
 
   async function load() {
     const response = await apiFetch<Course[]>('/courses');
@@ -21,10 +26,35 @@ export default function CoursesPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    await apiFetch('/courses', { method: 'POST', body: JSON.stringify({ ...form, studentCount: Number(form.studentCount), durationMinutes: Number(form.durationMinutes) }) });
-    setForm({ code: '', name: '', instructorName: '', studentCount: '0', durationMinutes: '120' });
+    const payload = { ...form, studentCount: Number(form.studentCount), durationMinutes: Number(form.durationMinutes) };
+    await apiFetch('/courses', { method: 'POST', body: JSON.stringify(payload) });
+    setForm(emptyForm);
     await load();
   }
+
+  async function saveEdit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editTarget) return;
+    const payload = { ...form, studentCount: Number(form.studentCount), durationMinutes: Number(form.durationMinutes) };
+    await apiFetch(`/courses/${editTarget.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+    setEditTarget(null);
+    await load();
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    await apiFetch(`/courses/${deleteTarget.id}`, { method: 'DELETE' });
+    setDeleteTarget(null);
+    await load();
+  }
+
+  function startEdit(index: number) {
+    const c = courses[index];
+    setForm({ code: c.code, name: c.name, instructorName: c.instructorName || '', studentCount: String(c.studentCount), durationMinutes: String(c.durationMinutes) });
+    setEditTarget(c);
+  }
+
+  const inputCls = 'rounded-md border px-3 py-2 text-sm w-full dark:border-slate-700 dark:bg-slate-950';
 
   return (
     <div className="space-y-6">
@@ -32,14 +62,62 @@ export default function CoursesPage() {
         <h2 className="text-3xl font-bold">Dersler</h2>
         <p className="text-slate-500">Ders, sınav süresi ve öğretim elemanı bilgileri.</p>
       </header>
+
       <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-6">
-        <input required placeholder="Ders Kodu" className="rounded-md border px-3 py-2 dark:border-slate-700 dark:bg-slate-950" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} />
-        <input required placeholder="Ders Adı" className="rounded-md border px-3 py-2 dark:border-slate-700 dark:bg-slate-950 md:col-span-2" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <input placeholder="Öğretim Elemanı" className="rounded-md border px-3 py-2 dark:border-slate-700 dark:bg-slate-950" value={form.instructorName} onChange={(e) => setForm({ ...form, instructorName: e.target.value })} />
-        <input type="number" placeholder="Öğrenci" className="rounded-md border px-3 py-2 dark:border-slate-700 dark:bg-slate-950" value={form.studentCount} onChange={(e) => setForm({ ...form, studentCount: e.target.value })} />
-        <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white">Ekle</button>
+        <input required placeholder="Ders Kodu" className={inputCls} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} />
+        <input required placeholder="Ders Adı" className={`${inputCls} md:col-span-2`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <input placeholder="Öğretim Elemanı" className={inputCls} value={form.instructorName} onChange={(e) => setForm({ ...form, instructorName: e.target.value })} />
+        <input type="number" placeholder="Öğrenci" className={inputCls} value={form.studentCount} onChange={(e) => setForm({ ...form, studentCount: e.target.value })} />
+        <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">Ekle</button>
       </form>
-      <DataTable columns={['Kod', 'Ad', 'Öğretim Elemanı', 'Öğrenci', 'Süre', 'Tür']} rows={courses.map((course) => [course.code, course.name, course.instructorName || '-', course.studentCount, `${course.durationMinutes} dk`, course.examType])} />
+
+      <DataTable
+        columns={['Kod', 'Ad', 'Öğretim Elemanı', 'Öğrenci', 'Süre', 'Tür']}
+        rows={courses.map((c) => [c.code, c.name, c.instructorName || '-', c.studentCount, `${c.durationMinutes} dk`, c.examType])}
+        onEdit={startEdit}
+        onDelete={(i) => setDeleteTarget(courses[i])}
+      />
+
+      {editTarget && (
+        <Modal title={`Dersi Düzenle — ${editTarget.code}`} onClose={() => setEditTarget(null)}>
+          <form onSubmit={saveEdit} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Ders Kodu</label>
+                <input required className={inputCls} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Öğrenci Sayısı</label>
+                <input type="number" required className={inputCls} value={form.studentCount} onChange={(e) => setForm({ ...form, studentCount: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">Ders Adı</label>
+              <input required className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">Öğretim Elemanı</label>
+              <input className={inputCls} value={form.instructorName} onChange={(e) => setForm({ ...form, instructorName: e.target.value })} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">Sınav Süresi (dk)</label>
+              <input type="number" required className={inputCls} value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })} />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setEditTarget(null)} className="rounded-md border px-4 py-2 text-sm dark:border-slate-700">İptal</button>
+              <button type="submit" className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Kaydet</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          message={`"${deleteTarget.code} — ${deleteTarget.name}" dersini silmek istediğinizden emin misiniz?`}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }

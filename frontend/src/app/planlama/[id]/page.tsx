@@ -13,7 +13,7 @@ type Period = { id: string; name: string; startDate: string; endDate: string };
 type Schedule = { id: string; date: string; startTime: string; endTime: string; durationMinutes: number; examId: string };
 type RoomSlot = {
   id: string; date: string; startTime: string; endTime: string;
-  classroom: { id: string; code: string; name: string; capacity: number };
+  classroom: { id: string; code: string; name: string; capacity: number; rowCount: number; columnCount: number };
   assignments: Array<{ assignedCount: number; exam: Exam }>;
 };
 type SeatAssignment = {
@@ -21,6 +21,7 @@ type SeatAssignment = {
   student: { id: string; fullName: string; studentNo: string; department: string };
   seat: { label: string; row: number; column: number };
   exam: Exam;
+  bookletType?: string | null;
   classroom: { id: string; code: string; name: string; rowCount: number; columnCount: number };
 };
 type InvigilatorAssignment = {
@@ -31,9 +32,19 @@ type InvigilatorAssignment = {
 type Insight = { id: string; summary: string; risks: unknown; suggestions: unknown; createdAt: string };
 type Warning = { code: string; message: string; severity: string };
 
+type ExamCoverageEntry = { examId: string; courseCode: string; expected: number; actual: number; missing: number; extra: number };
+type Metrics = {
+  totalExpectedStudents?: number;
+  totalAssignedStudents?: number;
+  unassignedStudentCount?: number;
+  examCoveragePercent?: number;
+  examCoverage?: ExamCoverageEntry[];
+  [key: string]: unknown;
+};
+
 type Scenario = {
   id: string; name: string; strategy: string; status: string; score: number;
-  metrics?: Record<string, unknown>; warnings?: Warning[];
+  metrics?: Metrics; warnings?: Warning[];
   createdAt: string; updatedAt: string;
   period: Period; schedules: Schedule[]; roomSlots: RoomSlot[];
   seats: SeatAssignment[]; invigilators: InvigilatorAssignment[]; insights: Insight[];
@@ -130,7 +141,7 @@ export default function ScenarioDetailPage() {
 
       {activeTab === 'Ozet' && <OverviewTab scenario={scenario} />}
       {activeTab === 'Takvim' && <ScheduleTab schedules={scenario.schedules} />}
-      {activeTab === 'Derslikler' && <ClassroomTab roomSlotsByDate={roomSlotsByDate} seatSlotsByClassroom={seatSlotsByClassroom} />}
+      {activeTab === 'Derslikler' && <ClassroomTab roomSlotsByDate={roomSlotsByDate} seatSlotsByClassroom={seatSlotsByClassroom} examCoverage={scenario.metrics?.examCoverage as ExamCoverageEntry[] | undefined} />}
       {activeTab === 'Gozetmenler' && <InvigilatorTab invigilators={scenario.invigilators} />}
     </div>
   );
@@ -140,22 +151,80 @@ function OverviewTab({ scenario }: { scenario: Scenario }) {
   const totalStudents = scenario.seats.length;
   const totalExams = new Set(scenario.schedules.map((s) => s.examId)).size;
   const totalRooms = scenario.roomSlots.length;
+  const metrics = scenario.metrics;
+  const coverage = metrics?.examCoverage as ExamCoverageEntry[] | undefined;
+  const hasIncomplete = coverage?.some((e) => e.missing > 0 || e.extra > 0);
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <InfoCard label="Toplam Sinav" value={totalExams || '-'} />
         <InfoCard label="Atanmis Ogrenci" value={totalStudents || '-'} />
         <InfoCard label="Kullanilan Derslik" value={totalRooms || '-'} />
+        <InfoCard
+          label="Kapsam"
+          value={metrics?.examCoveragePercent != null ? `${metrics.examCoveragePercent}%` : '-'}
+        />
       </div>
+
+      {/* Per-exam coverage table */}
+      {coverage && coverage.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+            <h3 className="font-semibold text-sm">Sinav Atama Kapsamı</h3>
+            {hasIncomplete && (
+              <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-950 dark:text-red-400">
+                Eksik Atama Var
+              </span>
+            )}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 text-xs">
+                <tr>
+                  <th className="px-4 py-2 text-left font-semibold">Ders</th>
+                  <th className="px-4 py-2 text-right font-semibold">Beklenen</th>
+                  <th className="px-4 py-2 text-right font-semibold">Atanan</th>
+                  <th className="px-4 py-2 text-left font-semibold">Durum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {coverage.map((e) => {
+                  const complete = e.missing === 0 && e.extra === 0;
+                  return (
+                    <tr key={e.examId} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="px-4 py-2 font-medium">{e.courseCode}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{e.expected}</td>
+                      <td className="px-4 py-2 text-right tabular-nums font-semibold">
+                        <span className={complete ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                          {e.actual}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">
+                        {complete ? (
+                          <span className="text-xs text-green-600 dark:text-green-400">✓ Tam</span>
+                        ) : e.missing > 0 ? (
+                          <span className="text-xs text-red-600 dark:text-red-400">{e.missing} öğrenci atamasız kaldı</span>
+                        ) : (
+                          <span className="text-xs text-amber-600 dark:text-amber-400">{e.extra} fazla atama</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {scenario.warnings && scenario.warnings.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
           <h3 className="mb-2 font-semibold text-amber-700 dark:text-amber-400">Uyarilar ({scenario.warnings.length})</h3>
           <ul className="space-y-1">
             {scenario.warnings.map((w, i) => (
-              <li key={i} className="text-sm text-amber-800 dark:text-amber-300">
-                <span className="font-mono text-xs opacity-60">[{w.code}]</span> {w.message}
+              <li key={i} className={`text-sm ${w.severity === 'hard' ? 'text-red-700 dark:text-red-400' : 'text-amber-800 dark:text-amber-300'}`}>
+                <span className="font-mono text-xs opacity-60">[{(w as Warning & { type?: string }).type ?? w.code}]</span> {w.message}
               </li>
             ))}
           </ul>
@@ -197,10 +266,13 @@ function ScheduleTab({ schedules }: { schedules: Schedule[] }) {
 function ClassroomTab({
   roomSlotsByDate,
   seatSlotsByClassroom,
+  examCoverage,
 }: {
   roomSlotsByDate: Record<string, RoomSlot[]>;
   seatSlotsByClassroom: Record<string, SeatAssignment[]>;
+  examCoverage?: ExamCoverageEntry[];
 }) {
+  const coverageByExamId = new Map((examCoverage || []).map((e) => [e.examId, e]));
   if (Object.keys(roomSlotsByDate).length === 0) return <p className="text-slate-500">Henuz derslik atamasi yapilmadi.</p>;
 
   return (
@@ -223,20 +295,35 @@ function ClassroomTab({
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="font-semibold">{slot.classroom.name} <span className="font-mono text-sm text-slate-400">({slot.classroom.code})</span></p>
-                      <p className="text-sm text-slate-500">{slot.startTime} &ndash; {slot.endTime} &middot; K: {slot.classroom.capacity}</p>
+                      <p className="text-sm text-slate-500">
+                        {slot.startTime} &ndash; {slot.endTime}
+                        {' '}&middot;{' '}
+                        {slotSeats.length}/{slot.classroom.rowCount * slot.classroom.columnCount} koltuk
+                        {slot.classroom.rowCount > 0 && slot.classroom.columnCount > 0 && (
+                          <> ({slot.classroom.columnCount} sütun &times; {slot.classroom.rowCount} sıra)</>
+                        )}
+                      </p>
                     </div>
                     <div className="flex flex-wrap gap-2 text-sm">
                       {slot.assignments.map((a) => {
                         const cIdx = colorByCourse.get(a.exam.course.code);
+                        const cov = coverageByExamId.get(a.exam.id);
+                        const complete = !cov || (cov.missing === 0 && cov.extra === 0);
                         return (
                           <span key={a.exam.id} className={cIdx !== undefined ? `${COURSE_COLORS[cIdx].text} font-medium` : 'text-slate-500'}>
-                            {a.exam.course.code} ({a.assignedCount})
+                            {a.exam.course.code}{' '}
+                            <span className={complete ? '' : 'text-red-600 dark:text-red-400 font-bold'}>
+                              ({a.assignedCount}{cov ? `/${cov.expected}` : ''})
+                            </span>
+                            {!complete && cov && cov.missing > 0 && (
+                              <span className="ml-1 text-[10px] text-red-600 dark:text-red-400">⚠ {cov.missing} eksik</span>
+                            )}
                           </span>
                         );
                       })}
                     </div>
                   </div>
-                  {slotSeats.length > 0 && <SeatGrid seats={slotSeats} colorByCourse={colorByCourse} />}
+                  <SeatGrid seats={slotSeats} colorByCourse={colorByCourse} classroom={slot.classroom} />
                 </div>
               );
             })}
@@ -247,9 +334,9 @@ function ClassroomTab({
   );
 }
 
-function SeatGrid({ seats, colorByCourse }: { seats: SeatAssignment[]; colorByCourse: Map<string, number> }) {
-  const maxRow = Math.max(...seats.map((s) => s.seat.row), 0);
-  const maxCol = Math.max(...seats.map((s) => s.seat.column), 0);
+function SeatGrid({ seats, colorByCourse, classroom }: { seats: SeatAssignment[]; colorByCourse: Map<string, number>; classroom: { id: string; rowCount: number; columnCount: number } }) {
+  const maxRow = classroom.rowCount || Math.max(...seats.map((s) => s.seat.row), 0);
+  const maxCol = classroom.columnCount || Math.max(...seats.map((s) => s.seat.column), 0);
   if (maxRow === 0 || maxCol === 0) return null;
 
   const uniqueCourseCodes = [...new Set(seats.map((s) => s.exam.course.code))];
@@ -284,8 +371,12 @@ function SeatGrid({ seats, colorByCourse }: { seats: SeatAssignment[]; colorByCo
       >
         {grid.flat().map((s, i) => {
           if (!s) {
+            const row = Math.floor(i / maxCol) + 1;
+            const col = (i % maxCol) + 1;
             return (
-              <div key={i} className="flex h-12 w-12 items-center justify-center rounded-md border border-dashed border-slate-200 text-xs text-slate-300 dark:border-slate-700 dark:text-slate-600" />
+              <div key={i} className="flex h-12 w-12 flex-col items-center justify-center rounded-md border border-dashed border-slate-200 text-[9px] text-slate-300 dark:border-slate-700 dark:text-slate-600">
+                <span>{row}-{col}</span>
+              </div>
             );
           }
           const colorIdx = colorByCourse.get(s.exam.course.code) ?? 0;
@@ -299,10 +390,14 @@ function SeatGrid({ seats, colorByCourse }: { seats: SeatAssignment[]; colorByCo
                 {s.student.fullName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
               </span>
               <span className="text-[9px] opacity-50">{s.seat.label}</span>
+              {s.bookletType && (
+                <span className={`text-[8px] font-semibold ${colors.text} opacity-80`}>{s.bookletType}</span>
+              )}
               <div className="pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2.5 py-1.5 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 z-20 shadow-lg">
                 <p className="font-semibold">{s.student.fullName}</p>
                 <p className="text-slate-300">{s.student.studentNo}</p>
                 <p className="text-slate-400">{s.exam.course.code} {s.exam.course.name}</p>
+                {s.bookletType && <p className="text-slate-300">Kitapçık {s.bookletType}</p>}
                 <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
               </div>
             </div>

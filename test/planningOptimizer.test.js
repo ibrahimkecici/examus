@@ -187,6 +187,405 @@ test('candidate scorer invalidates room conflict', () => {
   assert.equal(candidate.reason, 'ROOM_CONFLICT');
 });
 
+test('single-course alternating column seating avoids adjacent same-course students', () => {
+  const room = classroom({ code: 'R1', name: 'Room', capacity: 12 });
+  const students = Array.from({ length: 6 }, (_, index) => ({ id: `S${index + 1}`, studentNo: String(index + 1), fullName: `Öğrenci ${index + 1}` }));
+  const item = exam('E1', 'MAT101', students);
+  const result = allocateSeatsForRoom(room, [examGroup(item)]);
+  assert.equal(result.missingCount, 0);
+  assert.equal(result.sameCourseAdjacentSeatCount, 0);
+  assert.equal(result.strategy, 'SINGLE_COURSE_ALTERNATING_COLUMNS');
+});
+
+test('single-course alternating columns leaves students unplaced when safe capacity insufficient', () => {
+  const room = classroom({ code: 'R1', name: 'Room', capacity: 4 });
+  const students = Array.from({ length: 4 }, (_, index) => ({ id: `S${index + 1}`, studentNo: String(index + 1), fullName: `Öğrenci ${index + 1}` }));
+  const item = exam('E1', 'MAT101', students);
+  const result = allocateSeatsForRoom(room, [examGroup(item)]);
+  assert.equal(result.missingCount, 2);
+  assert.equal(result.strategy, 'SINGLE_COURSE_ALTERNATING_COLUMNS');
+  assert.equal(result.assignments.length, 2);
+  assert.equal(result.sameCourseAdjacentSeatCount, 0);
+  assert.ok(result.strategyWarnings.length > 0);
+});
+
+test('multi-course interleaved columns assigns different courses to alternating columns', () => {
+  const room = classroom({ code: 'R1', name: 'Room', capacity: 12 });
+  const e1 = exam('E1', 'MAT101', [
+    { id: 'A1', studentNo: '1', fullName: 'A1' },
+    { id: 'A2', studentNo: '2', fullName: 'A2' },
+    { id: 'A3', studentNo: '3', fullName: 'A3' },
+  ]);
+  const e2 = exam('E2', 'FIZ102', [
+    { id: 'B1', studentNo: '4', fullName: 'B1' },
+    { id: 'B2', studentNo: '5', fullName: 'B2' },
+    { id: 'B3', studentNo: '6', fullName: 'B3' },
+  ]);
+  const result = allocateSeatsForRoom(room, [examGroup(e1), examGroup(e2)]);
+  assert.equal(result.sameCourseAdjacentSeatCount, 0);
+  assert.equal(result.strategy, 'MULTI_COURSE_INTERLEAVED_COLUMNS');
+});
+
+test('safe column capacity picks best alternating pattern', () => {
+  const { safeColumnCapacity, bestAlternatingColumns, seatsGroupedByColumn } = require('../src/services/planning/seatingStrategy');
+  const { activeSeatsForRoom } = require('../src/services/planning/seatAllocator');
+
+  const room = classroom({ code: 'R1', name: 'Room', capacity: 8 });
+  const safeCap = safeColumnCapacity(activeSeatsForRoom(room));
+  assert.equal(safeCap, 4);
+
+  const uneven = [
+    { id: 'S1', classroomId: 'R2', label: '1-1', row: 1, column: 1, status: 'AKTIF', capacity: 1 },
+    { id: 'S2', classroomId: 'R2', label: '1-2', row: 1, column: 2, status: 'AKTIF', capacity: 1 },
+    { id: 'S3', classroomId: 'R2', label: '1-3', row: 1, column: 3, status: 'AKTIF', capacity: 1 },
+    { id: 'S4', classroomId: 'R2', label: '2-1', row: 2, column: 1, status: 'AKTIF', capacity: 1 },
+    { id: 'S5', classroomId: 'R2', label: '2-3', row: 2, column: 3, status: 'AKTIF', capacity: 1 },
+  ];
+  const colMap = seatsGroupedByColumn(uneven);
+  const best = bestAlternatingColumns(colMap);
+  assert.equal(best.length, 2);
+  assert.ok(best.includes(1));
+  assert.ok(best.includes(3));
+  const unevenCap = safeColumnCapacity(uneven);
+  assert.equal(unevenCap, 4);
+});
+
+test('validate same-course horizontal adjacency is detected', () => {
+  const { validateSameCourseHorizontalAdjacency } = require('../src/services/planning/validationService');
+  const assignments = [
+    { courseCode: 'MAT101', student: { fullName: 'Ali' }, seat: { row: 1, column: 1, label: '1-1' }, exam: { id: 'E1' } },
+    { courseCode: 'MAT101', student: { fullName: 'Veli' }, seat: { row: 1, column: 2, label: '1-2' }, exam: { id: 'E1' } },
+  ];
+  const warnings = validateSameCourseHorizontalAdjacency(assignments);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].type, 'SAME_COURSE_HORIZONTAL_ADJACENT');
+});
+
+test('validate same-course diagonal adjacency from neighboring columns is detected', () => {
+  const { validateSameCourseDiagonalAdjacency } = require('../src/services/planning/validationService');
+  const assignments = [
+    { courseCode: 'MAT101', student: { fullName: 'Ali' }, seat: { row: 1, column: 1, label: '1-1' }, exam: { id: 'E1' } },
+    { courseCode: 'MAT101', student: { fullName: 'Veli' }, seat: { row: 2, column: 2, label: '2-2' }, exam: { id: 'E1' } },
+  ];
+  const warnings = validateSameCourseDiagonalAdjacency(assignments);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].type, 'SAME_COURSE_DIAGONAL_ADJACENT');
+});
+
+test('column spacing validator detects adjacent column violation in single-course', () => {
+  const { validateSingleCourseColumnSpacing } = require('../src/services/planning/validationService');
+  const assignments = [
+    { courseCode: 'MAT101', student: { fullName: 'Ali' }, seat: { row: 1, column: 1, label: '1-1' }, exam: { id: 'E1' } },
+    { courseCode: 'MAT101', student: { fullName: 'Veli' }, seat: { row: 1, column: 2, label: '1-2' }, exam: { id: 'E1' } },
+    { courseCode: 'MAT101', student: { fullName: 'Can' }, seat: { row: 1, column: 3, label: '1-3' }, exam: { id: 'E1' } },
+  ];
+  const warnings = validateSingleCourseColumnSpacing(assignments);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].type, 'COLUMN_SPACING_VIOLATION');
+  assert.equal(warnings[0].severity, 'hard');
+});
+
+test('column spacing validator passes clean alternating pattern', () => {
+  const { validateSingleCourseColumnSpacing } = require('../src/services/planning/validationService');
+  const assignments = [
+    { courseCode: 'MAT101', student: { fullName: 'Ali' }, seat: { row: 1, column: 1, label: '1-1' }, exam: { id: 'E1' } },
+    { courseCode: 'MAT101', student: { fullName: 'Veli' }, seat: { row: 1, column: 3, label: '1-3' }, exam: { id: 'E1' } },
+    { courseCode: 'MAT101', student: { fullName: 'Can' }, seat: { row: 1, column: 5, label: '1-5' }, exam: { id: 'E1' } },
+  ];
+  const warnings = validateSingleCourseColumnSpacing(assignments);
+  assert.equal(warnings.length, 0);
+});
+
+function roomWithGrid(code, rows, cols) {
+  const seats = [];
+  for (let row = 1; row <= rows; row++) {
+    for (let col = 1; col <= cols; col++) {
+      seats.push({ id: `${code}-${row}-${col}`, classroomId: code, label: `${row}-${col}`, row, column: col, status: 'AKTIF', capacity: 1 });
+    }
+  }
+  return { id: code, code, name: code, building: 'A', capacity: rows * cols, seats };
+}
+
+test('single-course 6x6 room: safe capacity is 18, rejects 30 students', () => {
+  const weights = strategyWeights('efficient');
+  const room = roomWithGrid('R6x6', 6, 6);
+  const students = Array.from({ length: 30 }, (_, i) => ({ id: `S${i}`, studentNo: `${i}`, fullName: `Student ${i}` }));
+  const item = exam('E1', 'MAT101', students);
+
+  const candidates = buildRoomCandidates([room], [examGroup(item)], weights, 'efficient');
+  assert.equal(candidates.length, 0, 'Room must be rejected: safe capacity 18 < 30 students');
+
+  const seatResult = allocateSeatsForRoom(room, [examGroup(item)]);
+  assert.equal(seatResult.strategy, 'SINGLE_COURSE_ALTERNATING_COLUMNS');
+  assert.equal(seatResult.assignments.length, 18, 'Only 18 alternating-column seats should be assigned');
+  assert.equal(seatResult.missingCount, 12);
+  const usedCols = [...new Set(seatResult.assignments.map((a) => a.seat.column))].sort((a, b) => a - b);
+  for (let i = 1; i < usedCols.length; i++) {
+    assert.notEqual(usedCols[i] - usedCols[i - 1], 1, `Adjacent columns ${usedCols[i - 1]} and ${usedCols[i]} detected`);
+  }
+});
+
+test('single-course 6x6 room: 18 students fit exactly in alternating columns', () => {
+  const weights = strategyWeights('efficient');
+  const room = roomWithGrid('R6x6', 6, 6);
+  const students = Array.from({ length: 18 }, (_, i) => ({ id: `S${i}`, studentNo: `${i}`, fullName: `Student ${i}` }));
+  const item = exam('E1', 'MAT101', students);
+
+  const candidates = buildRoomCandidates([room], [examGroup(item)], weights, 'efficient');
+  assert.equal(candidates.length, 1, 'Room must be accepted: safe capacity 18 = 18 students');
+  assert.equal(candidates[0].totalCapacity, 18);
+  assert.equal(candidates[0].usedSafeCapacity, true);
+
+  const seatResult = allocateSeatsForRoom(room, [examGroup(item)]);
+  assert.equal(seatResult.missingCount, 0);
+  const usedCols = [...new Set(seatResult.assignments.map((a) => a.seat.column))].sort((a, b) => a - b);
+  assert.ok(usedCols.length <= 3, 'At most half of the 6 columns should be used');
+  for (let i = 1; i < usedCols.length; i++) {
+    assert.notEqual(usedCols[i] - usedCols[i - 1], 1, `Adjacent columns ${usedCols[i - 1]} and ${usedCols[i]} detected`);
+  }
+});
+
+test('single-course 6x6 room: 19 students exceed safe capacity of 18', () => {
+  const weights = strategyWeights('efficient');
+  const room = roomWithGrid('R6x6', 6, 6);
+  const students = Array.from({ length: 19 }, (_, i) => ({ id: `S${i}`, studentNo: `${i}`, fullName: `Student ${i}` }));
+  const item = exam('E1', 'MAT101', students);
+
+  const candidates = buildRoomCandidates([room], [examGroup(item)], weights, 'efficient');
+  assert.equal(candidates.length, 0, 'Room must be rejected: safe capacity 18 < 19 students');
+});
+
+test('single-course 5x10 room: 30 students fit exactly using 3 of 5 columns', () => {
+  const weights = strategyWeights('efficient');
+  const room = roomWithGrid('R5x10', 10, 5); // 10 rows × 5 columns
+  const students = Array.from({ length: 30 }, (_, i) => ({ id: `S${i}`, studentNo: `${i}`, fullName: `Student ${i}` }));
+  const item = exam('E1', 'MAT101', students);
+
+  const candidates = buildRoomCandidates([room], [examGroup(item)], weights, 'efficient');
+  assert.equal(candidates.length, 1, 'Room must be accepted: safe capacity 30 = 30 students');
+  assert.equal(candidates[0].totalCapacity, 30);
+
+  const seatResult = allocateSeatsForRoom(room, [examGroup(item)]);
+  assert.equal(seatResult.missingCount, 0);
+  const usedCols = [...new Set(seatResult.assignments.map((a) => a.seat.column))].sort((a, b) => a - b);
+  assert.equal(usedCols.length, 3, 'Exactly 3 alternating columns must be used');
+  for (let i = 1; i < usedCols.length; i++) {
+    assert.notEqual(usedCols[i] - usedCols[i - 1], 1, `Adjacent columns ${usedCols[i - 1]} and ${usedCols[i]} detected`);
+  }
+});
+
+test('single-course 5x10 room: 31 students exceed safe capacity of 30', () => {
+  const weights = strategyWeights('efficient');
+  const room = roomWithGrid('R5x10', 10, 5); // 10 rows × 5 columns
+  const students = Array.from({ length: 31 }, (_, i) => ({ id: `S${i}`, studentNo: `${i}`, fullName: `Student ${i}` }));
+  const item = exam('E1', 'MAT101', students);
+
+  const candidates = buildRoomCandidates([room], [examGroup(item)], weights, 'efficient');
+  assert.equal(candidates.length, 0, 'Room must be rejected: safe capacity 30 < 31 students');
+});
+
+test('column spacing validation fires per-room even when multiple exams exist in scenario', () => {
+  const { validateSingleCourseColumnSpacing } = require('../src/services/planning/validationService');
+  const assignments = [
+    { courseCode: 'MAT101', student: { fullName: 'Ali' }, seat: { row: 1, column: 1, label: '1-1', classroomId: 'R1' }, exam: { id: 'E1' } },
+    { courseCode: 'MAT101', student: { fullName: 'Veli' }, seat: { row: 1, column: 2, label: '1-2', classroomId: 'R1' }, exam: { id: 'E1' } },
+    { courseCode: 'FIZ102', student: { fullName: 'Can' }, seat: { row: 1, column: 1, label: '1-1', classroomId: 'R2' }, exam: { id: 'E2' } },
+    { courseCode: 'FIZ102', student: { fullName: 'Selin' }, seat: { row: 1, column: 3, label: '1-3', classroomId: 'R2' }, exam: { id: 'E2' } },
+  ];
+  const warnings = validateSingleCourseColumnSpacing(assignments);
+  assert.equal(warnings.length, 1, 'R1 violation must be detected even though a second exam exists in a different room');
+  assert.equal(warnings[0].type, 'COLUMN_SPACING_VIOLATION');
+});
+
+test('multi-course room selection rejects room when largest course overflows its column allocation', () => {
+  const weights = strategyWeights('efficient');
+  // 4 cols × 3 rows = 12 seats. Round-robin gives each of 2 courses 2 cols × 3 rows = 6 seats.
+  // MAT101 needs 8 > 6 → interleavedColumnCapacity = min(8,6)+min(4,6) = 10 < 12 needed → rejected.
+  const room = roomWithGrid('R4x3', 3, 4);
+  const large = exam('E1', 'MAT101', Array.from({ length: 8 }, (_, i) => ({ id: `A${i}`, studentNo: `${i}`, fullName: `A ${i}` })));
+  const small = exam('E2', 'FIZ102', Array.from({ length: 4 }, (_, i) => ({ id: `B${i}`, studentNo: `${i + 10}`, fullName: `B ${i}` })));
+  const candidates = buildRoomCandidates([room], [examGroup(large), examGroup(small)], weights, 'efficient');
+  assert.equal(candidates.length, 0, 'Room must be rejected: largest course overflows its column allocation');
+});
+
+test('multi-course room selection accepts room where both courses fit their column allocation', () => {
+  const weights = strategyWeights('efficient');
+  // 4 cols × 4 rows = 16 seats. Each of 2 courses gets 2 cols × 4 rows = 8 seats. Both need ≤ 8 → ok.
+  const room = roomWithGrid('R4x4', 4, 4);
+  const e1 = exam('E1', 'MAT101', Array.from({ length: 6 }, (_, i) => ({ id: `A${i}`, studentNo: `${i}`, fullName: `A ${i}` })));
+  const e2 = exam('E2', 'FIZ102', Array.from({ length: 6 }, (_, i) => ({ id: `B${i}`, studentNo: `${i + 10}`, fullName: `B ${i}` })));
+  const candidates = buildRoomCandidates([room], [examGroup(e1), examGroup(e2)], weights, 'efficient');
+  assert.ok(candidates.length > 0, 'Room must be accepted');
+  const result = allocateSeatsForRoom(room, [examGroup(e1), examGroup(e2)]);
+  assert.equal(result.missingCount, 0);
+  assert.equal(result.sameCourseAdjacentSeatCount, 0);
+  assert.equal(result.strategy, 'MULTI_COURSE_INTERLEAVED_COLUMNS');
+});
+
+test('multi-course overflow does not compact-fill adjacent columns', () => {
+  // When overflow occurs, missing students are left unplaced rather than filled compactly.
+  const room = roomWithGrid('R4x3', 3, 4);
+  const large = exam('E1', 'MAT101', Array.from({ length: 8 }, (_, i) => ({ id: `A${i}`, studentNo: `${i}`, fullName: `A ${i}` })));
+  const small = exam('E2', 'FIZ102', Array.from({ length: 4 }, (_, i) => ({ id: `B${i}`, studentNo: `${i + 10}`, fullName: `B ${i}` })));
+  const result = allocateSeatsForRoom(room, [examGroup(large), examGroup(small)]);
+  assert.ok(result.missingCount > 0, 'Overflow students must be missing, not compacted into adjacent columns');
+  assert.equal(result.sameCourseAdjacentSeatCount, 0, 'No same-course adjacent seats even when overflow occurs');
+  assert.ok(result.strategyWarnings.length > 0, 'Overflow must emit a strategy warning');
+});
+
+test('single-course A/B booklet: uses diagonal-safe capacity, not dense checkerboard seating', () => {
+  const weights = strategyWeights('efficient');
+  const room = roomWithGrid('R6x6', 6, 6); // 36 seats, safe capacity = 18
+  const students = Array.from({ length: 30 }, (_, i) => ({ id: `S${i}`, studentNo: `${i}`, fullName: `Student ${i}` }));
+  const item = { ...exam('E1', 'MAT101', students), bookletTypes: ['A', 'B'] };
+
+  const candidates = buildRoomCandidates([room], [examGroup(item)], weights, 'efficient');
+  assert.equal(candidates.length, 0, 'Dense A/B seating must be rejected when diagonal same-booklet conflicts are invalid');
+
+  const seatResult = allocateSeatsForRoom(room, [examGroup(item)]);
+  assert.equal(seatResult.assignments.length, 18, 'Only diagonal-safe seats should be assigned');
+  assert.equal(seatResult.missingCount, 12);
+  assert.ok(seatResult.strategyWarnings.length > 0);
+});
+
+test('single-course A/B booklet: spacing prevents horizontal and diagonal same-booklet adjacency', () => {
+  const room = roomWithGrid('R4x4', 4, 4); // 16 seats
+  const students = Array.from({ length: 8 }, (_, i) => ({ id: `S${i}`, studentNo: `${i}`, fullName: `Student ${i}` }));
+  const item = { ...exam('E1', 'MAT101', students), bookletTypes: ['A', 'B'] };
+
+  const seatResult = allocateSeatsForRoom(room, [examGroup(item)]);
+  assert.equal(seatResult.missingCount, 0);
+  assert.equal(seatResult.sameCourseAdjacentSeatCount, 0);
+
+  const assignments = seatResult.assignments;
+  for (let i = 0; i < assignments.length; i++) {
+    for (let j = i + 1; j < assignments.length; j++) {
+      const a = assignments[i];
+      const b = assignments[j];
+      if (a.seat.row === b.seat.row && Math.abs(a.seat.column - b.seat.column) === 1) {
+        assert.notEqual(a.bookletType, b.bookletType, `Adjacent seats ${a.seat.label} and ${b.seat.label} have same booklet ${a.bookletType}`);
+      }
+      if (Math.abs(a.seat.row - b.seat.row) === 1 && Math.abs(a.seat.column - b.seat.column) === 1) {
+        assert.notEqual(a.bookletType, b.bookletType, `Diagonal seats ${a.seat.label} and ${b.seat.label} have same booklet ${a.bookletType}`);
+      }
+    }
+  }
+
+  // Verify booklet balance
+  const counts = {};
+  for (const a of assignments) counts[a.bookletType] = (counts[a.bookletType] || 0) + 1;
+  assert.ok(Math.abs(counts['A'] - counts['B']) <= 1, `Booklet counts must be balanced: A=${counts['A']}, B=${counts['B']}`);
+});
+
+test('multi-course A/B booklet: avoids same-booklet hard adjacency without forcing checkerboard', () => {
+  const room = roomWithGrid('R4x4', 4, 4);
+  const matStudents = Array.from({ length: 8 }, (_, i) => ({ id: `M${i}`, studentNo: `M${i}`, fullName: `MAT ${i}` }));
+  const fizStudents = Array.from({ length: 8 }, (_, i) => ({ id: `F${i}`, studentNo: `F${i}`, fullName: `FIZ ${i}` }));
+  const mat = { ...exam('E1', 'MAT101', matStudents), bookletTypes: ['A', 'B'] };
+  const fiz = { ...exam('E2', 'FIZ102', fizStudents), bookletTypes: ['A', 'B'] };
+
+  const seatResult = allocateSeatsForRoom(room, [examGroup(mat), examGroup(fiz)]);
+  assert.equal(seatResult.missingCount, 0);
+  assert.equal(seatResult.sameCourseAdjacentSeatCount, 0);
+  assert.equal(seatResult.sameCourseSameBookletFrontBackAvoidableCount, 0);
+
+  assert.equal(require('../src/services/planning/seatAllocator').countSameBookletDiagonalConflicts(seatResult.assignments), 0);
+});
+
+test('multi-course A/B/C/D booklets use coordinate cycling and remain balanced', () => {
+  const room = roomWithGrid('R4x4', 4, 4);
+  const matStudents = Array.from({ length: 8 }, (_, i) => ({ id: `M4${i}`, studentNo: `M4${i}`, fullName: `MAT ${i}` }));
+  const fizStudents = Array.from({ length: 8 }, (_, i) => ({ id: `F4${i}`, studentNo: `F4${i}`, fullName: `FIZ ${i}` }));
+  const mat = { ...exam('E1', 'MAT101', matStudents), bookletTypes: ['A', 'B', 'C', 'D'] };
+  const fiz = { ...exam('E2', 'FIZ102', fizStudents), bookletTypes: ['A', 'B', 'C', 'D'] };
+
+  const seatResult = allocateSeatsForRoom(room, [examGroup(mat), examGroup(fiz)]);
+  assert.equal(seatResult.missingCount, 0);
+  assert.equal(seatResult.sameCourseAdjacentSeatCount, 0);
+  assert.equal(seatResult.sameCourseSameBookletFrontBackAvoidableCount, 0);
+
+  const counts = {};
+  for (const assignment of seatResult.assignments.filter((a) => a.courseCode === 'MAT101')) {
+    counts[assignment.bookletType] = (counts[assignment.bookletType] || 0) + 1;
+  }
+  assert.deepEqual(counts, { A: 2, B: 2, C: 2, D: 2 });
+});
+
+test('post-seating booklet optimization accepts only lower avoidable front/back count', () => {
+  const { countSeatRisks, optimizeBookletsAfterSeating } = require('../src/services/planning/seatAllocator');
+  const makeSeat = (row, col) => ({ id: `${row}-${col}`, row, column: col, label: `${row}-${col}`, classroomId: 'R1' });
+  const examItem = { id: 'E1', bookletTypes: ['A', 'B'], course: { id: 'C1', code: 'MAT101' } };
+  const assignments = [
+    { exam: examItem, courseCode: 'MAT101', bookletType: 'A', seat: makeSeat(1, 1) },
+    { exam: examItem, courseCode: 'MAT101', bookletType: 'A', seat: makeSeat(2, 1) },
+    { exam: examItem, courseCode: 'MAT101', bookletType: 'B', seat: makeSeat(3, 1) },
+    { exam: examItem, courseCode: 'MAT101', bookletType: 'B', seat: makeSeat(4, 1) },
+  ];
+
+  const before = countSeatRisks(assignments);
+  const optimized = optimizeBookletsAfterSeating(assignments);
+  assert.equal(before.sameCourseSameBookletFrontBackAvoidableCount, 2);
+  assert.equal(optimized.sameCourseSameBookletFrontBackAvoidableCount, 0);
+  assert.equal(optimized.sameCourseAdjacentSeatCount, 0);
+  assert.deepEqual(optimized.assignments.map((assignment) => assignment.seat.id), assignments.map((assignment) => assignment.seat.id));
+});
+
+test('single-course single-booklet: still uses alternating columns', () => {
+  const weights = strategyWeights('efficient');
+  const room = roomWithGrid('R6x6', 6, 6); // safe capacity = 18
+  const students = Array.from({ length: 20 }, (_, i) => ({ id: `S${i}`, studentNo: `${i}`, fullName: `Student ${i}` }));
+  const item = exam('E1', 'MAT101', students); // no bookletTypes → defaults to ['A']
+
+  const candidates = buildRoomCandidates([room], [examGroup(item)], weights, 'efficient');
+  assert.equal(candidates.length, 0, 'Single-booklet exam must still be limited to alternating-column capacity (18 < 20)');
+});
+
+test('single-booklet front/back conflicts are counted as unavoidable', () => {
+  const { countSeatRisks } = require('../src/services/planning/seatAllocator');
+  const makeSeat = (row, col) => ({ id: `${row}-${col}`, row, column: col, label: `${row}-${col}`, classroomId: 'R1' });
+  const assignments = [
+    { courseCode: 'MAT101', bookletType: 'A', seat: makeSeat(1, 1) },
+    { courseCode: 'MAT101', bookletType: 'A', seat: makeSeat(2, 1) },
+  ];
+  const risks = countSeatRisks(assignments);
+  assert.equal(risks.sameCourseSameBookletFrontBackAvoidableCount, 0);
+  assert.equal(risks.sameCourseSameBookletFrontBackUnavoidableCount, 1);
+});
+
+test('same-course different-booklet adjacency is not a risk', () => {
+  const { countSeatRisks } = require('../src/services/planning/seatAllocator');
+  const makeSeat = (row, col) => ({ id: `${row}-${col}`, row, column: col, label: `${row}-${col}`, classroomId: 'R1' });
+  // Two students same course, adjacent, but different booklets
+  const assignments = [
+    { courseCode: 'MAT101', bookletType: 'A', seat: makeSeat(1, 1) },
+    { courseCode: 'MAT101', bookletType: 'B', seat: makeSeat(1, 2) },
+  ];
+  const risks = countSeatRisks(assignments);
+  assert.equal(risks.sameCourseAdjacentSeatCount, 0, 'Different booklet adjacency must not count as a risk');
+});
+
+test('same-course same-booklet adjacency is a risk', () => {
+  const { countSeatRisks } = require('../src/services/planning/seatAllocator');
+  const makeSeat = (row, col) => ({ id: `${row}-${col}`, row, column: col, label: `${row}-${col}`, classroomId: 'R1' });
+  const assignments = [
+    { courseCode: 'MAT101', bookletType: 'A', seat: makeSeat(1, 1) },
+    { courseCode: 'MAT101', bookletType: 'A', seat: makeSeat(1, 2) },
+  ];
+  const risks = countSeatRisks(assignments);
+  assert.equal(risks.sameCourseAdjacentSeatCount, 1, 'Same booklet same course adjacency must be counted as a risk');
+});
+
+test('column spacing validator skips multi-booklet single-course rooms', () => {
+  const { validateSingleCourseColumnSpacing } = require('../src/services/planning/validationService');
+  // Same course, adjacent columns, but two booklet types → intentional, should not fire
+  const assignments = [
+    { courseCode: 'MAT101', bookletType: 'A', student: { fullName: 'Ali' }, seat: { row: 1, column: 1, label: '1-1', classroomId: 'R1' }, exam: { id: 'E1' } },
+    { courseCode: 'MAT101', bookletType: 'B', student: { fullName: 'Veli' }, seat: { row: 1, column: 2, label: '1-2', classroomId: 'R1' }, exam: { id: 'E1' } },
+  ];
+  const warnings = validateSingleCourseColumnSpacing(assignments);
+  assert.equal(warnings.length, 0, 'Multi-booklet rooms must not trigger column spacing violation');
+});
+
 test('metrics include score breakdown and mixed room counts', () => {
   const e1 = exam('E1', 'FIZ102', [{ id: 'S1' }]);
   const e2 = exam('E2', 'ING101', [{ id: 'S2' }]);
@@ -200,7 +599,7 @@ test('metrics include score breakdown and mixed room counts', () => {
     warnings: [],
     scoreParts: [{ roomEfficiency: 10, invigilatorFairness: 5, studentLoadBalance: 0, timeEfficiency: 0, mixedRoomEfficiency: -30 }],
     specialNeeds: { handledCount: 0, warningCount: 0 },
-    seatRisks: { sameCourseAdjacentSeatCount: 0, sameCourseFrontBackSeatCount: 0 },
+    seatRisks: { sameCourseAdjacentSeatCount: 0, sameCourseSameBookletFrontBackAvoidableCount: 0, sameCourseSameBookletFrontBackUnavoidableCount: 0 },
     explanations: ['Karma salon üretildi.'],
   });
   assert.equal(metrics.mixedRoomCount, 1);

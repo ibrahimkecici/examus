@@ -89,6 +89,7 @@ model Course {
   specialRules    Json?
   requiredRoomType String?
   requiredFeatures Json?
+  bookletTypes    Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -210,6 +211,7 @@ model Exam {
   specialRules    Json?
   requiredRoomType String?
   requiredFeatures Json?
+  bookletTypes    Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -298,6 +300,7 @@ model SeatAssignment {
   classroomId String
   seatId      String
   locked      Boolean @default(false)
+  bookletType String?
 
   scenario PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
   exam     Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
