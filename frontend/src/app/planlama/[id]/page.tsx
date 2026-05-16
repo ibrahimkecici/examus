@@ -118,9 +118,9 @@ export default function ScenarioDetailPage() {
         <button onClick={recheck} className="rounded-md border px-3 py-2 text-sm">Tekrar Kontrol Et</button>
         <button onClick={approve} disabled={scenario.status === 'APPROVED'} className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Onayla</button>
         <button onClick={generateInsight} className="rounded-md border px-3 py-2 text-sm">AI Onerisi Uret</button>
-        <a href={`${getApiBaseUrl()}/reports/scenarios/${scenario.id}/calendar.xlsx?token=${getToken()}`} className="rounded-md border px-3 py-2 text-sm">Takvim (Excel)</a>
-        <a href={`${getApiBaseUrl()}/reports/scenarios/${scenario.id}/calendar.pdf?token=${getToken()}`} className="rounded-md border px-3 py-2 text-sm">Takvim (PDF)</a>
       </div>
+
+      <ScenarioExportPanel scenario={scenario} />
 
       <nav className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
         {TABS.map((tab) => (
@@ -150,6 +150,96 @@ export default function ScenarioDetailPage() {
       {activeTab === 'Gozetmenler' && <InvigilatorTab invigilators={scenario.invigilators} />}
     </div>
   );
+}
+
+function reportUrl(scenarioId: string, path: string) {
+  const token = getToken();
+  return `${getApiBaseUrl()}/reports/scenarios/${scenarioId}/${path}?token=${encodeURIComponent(token || '')}`;
+}
+
+function ScenarioExportPanel({ scenario }: { scenario: Scenario }) {
+  const examOptions = getScenarioExamOptions(scenario);
+  const pdfExports = [
+    { label: 'Kapsamlı Operasyon PDF', description: 'Özet, takvim, salon kapı listeleri, oturma planı, gözetmenler ve uyarılar.', path: 'full.pdf' },
+    { label: 'Takvim PDF', description: 'Tarih, saat, salon, ders, kapasite ve gözetmen özeti.', path: 'calendar.pdf' },
+    { label: 'Salon PDF', description: 'Salon bazlı kapı listeleri ve koltuk gridleri.', path: 'classrooms.pdf' },
+    { label: 'Gözetmen PDF', description: 'Gözetmen görevleri, günlük ve toplam yük sayaçları.', path: 'invigilators.pdf' },
+    { label: 'Öğrenci/Oturma PDF', description: 'Öğrenci no, ad, ders, kitapçık ve koltuk listesi.', path: 'students.pdf' },
+  ];
+  const excelExports = [
+    { label: 'Takvim Excel', path: 'calendar.xlsx' },
+    { label: 'Gözetmen Excel', path: 'invigilators.xlsx' },
+    { label: 'Öğrenci Excel', path: 'students.xlsx' },
+    { label: 'Derslik Excel', path: 'classrooms.xlsx' },
+  ];
+
+  return (
+    <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <div>
+        <h3 className="text-base font-semibold">Çıktılar</h3>
+        <p className="text-sm text-slate-500">PDF çıktıları sınav günü kullanımına göre ayrıldı. Tekil sınav çıktısını aşağıdaki listeden alabilirsiniz.</p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {pdfExports.map((item) => (
+          <a
+            key={item.path}
+            href={reportUrl(scenario.id, item.path)}
+            className="rounded-lg border border-slate-200 p-3 transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:hover:border-blue-800 dark:hover:bg-blue-950/30"
+          >
+            <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{item.label}</span>
+            <span className="mt-1 block text-xs leading-5 text-slate-500">{item.description}</span>
+          </a>
+        ))}
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Excel çıktıları</p>
+        <div className="flex flex-wrap gap-2">
+          {excelExports.map((item) => (
+            <a key={item.path} href={reportUrl(scenario.id, item.path)} className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-950">
+              {item.label}
+            </a>
+          ))}
+        </div>
+      </div>
+
+      {examOptions.length > 0 && (
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Tekil sınav PDF</p>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {examOptions.map((exam) => (
+              <a
+                key={exam.id}
+                href={reportUrl(scenario.id, `exams/${exam.id}.pdf`)}
+                className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-950"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold">{exam.code}</span>
+                  <span className="block truncate text-xs text-slate-500">{exam.name}</span>
+                </span>
+                <span className="shrink-0 text-xs font-medium text-blue-600 dark:text-blue-400">PDF</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function getScenarioExamOptions(scenario: Scenario) {
+  const seen = new Map<string, { id: string; code: string; name: string }>();
+  for (const slot of scenario.roomSlots) {
+    for (const assignment of slot.assignments) {
+      seen.set(assignment.exam.id, {
+        id: assignment.exam.id,
+        code: assignment.exam.course.code,
+        name: assignment.exam.course.name,
+      });
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.code.localeCompare(b.code, 'tr'));
 }
 
 function OverviewTab({ scenario }: { scenario: Scenario }) {
