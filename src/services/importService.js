@@ -1,6 +1,7 @@
 const { parse } = require('csv-parse/sync');
 const XLSX = require('xlsx');
 const prisma = require('../config/prisma');
+const { syncCourseStudentCounts } = require('./courseStatsService');
 
 function readRows(file) {
   if (!file) {
@@ -67,6 +68,7 @@ async function importStudents(file) {
   const batch = await prisma.importBatch.create({
     data: { entityType: 'students', fileName: file.originalname, totalRows: rows.length },
   });
+  const touchedCourseIds = new Set();
 
   for (const [index, row] of rows.entries()) {
     const studentNo = value(row, ['studentNo', 'ogrenciNo', 'Öğrenci No', 'numara']);
@@ -97,6 +99,7 @@ async function importStudents(file) {
             update: {},
             create: { studentId: student.id, courseId: course.id },
           });
+          touchedCourseIds.add(course.id);
         }
       }
       successRows += 1;
@@ -104,6 +107,8 @@ async function importStudents(file) {
       errors.push({ row: index + 2, message: error.message });
     }
   }
+
+  await syncCourseStudentCounts([...touchedCourseIds]);
 
   return prisma.importBatch.update({
     where: { id: batch.id },

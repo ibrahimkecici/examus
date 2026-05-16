@@ -47,7 +47,23 @@ router.get(
   }),
 );
 
-router.post('/scenarios/:id/run', asyncHandler(async (req, res) => res.json({ success: true, data: await runScenario(req.params.id) })));
+router.post(
+  '/scenarios/:id/run',
+  asyncHandler(async (req, res) => {
+    try {
+      res.json({ success: true, data: await runScenario(req.params.id) });
+    } catch (error) {
+      const data = await prisma.planningScenario.update({
+        where: { id: req.params.id },
+        data: {
+          status: 'FAILED',
+          warnings: [{ type: 'PLANNING_RUN_ERROR', severity: 'hard', message: error.message || 'Planlama çalıştırması tamamlanamadı.' }],
+        },
+      });
+      res.status(500).json({ success: false, message: error.message || 'Planlama çalıştırması tamamlanamadı.', data });
+    }
+  }),
+);
 router.post('/scenarios/:id/recheck', asyncHandler(async (req, res) => res.json({ success: true, data: await recheckScenario(req.params.id) })));
 
 router.post(

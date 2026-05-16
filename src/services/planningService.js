@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { addMinutes, dateRange, overlaps, sameDate } = require('../utils/time');
+const { syncCourseStudentCounts } = require('./courseStatsService');
 const { buildCourseConflictMatrix, getExamStudents } = require('./planning/courseConflictMatrixBuilder');
 const { DEFAULT_PLANNING_CONFIG, normalizeStrategy, strategyWeights } = require('./planning/config');
 const { buildExplanations } = require('./planning/explanationBuilder');
@@ -8,6 +9,7 @@ const { buildScenarioMetrics } = require('./planning/metricsBuilder');
 const { buildPlanningGroups } = require('./planning/mixedRoomPlanner');
 const { activeSeatCapacity, buildRoomCandidates, getEffectiveCapacity } = require('./planning/roomAllocator');
 const { evaluatePlacementCandidate } = require('./planning/scenarioScorer');
+const { solveWithCpSat } = require('./planning/cpSatOptimizer');
 const { allocateSeatsForRoom, examHasMultipleBooklets } = require('./planning/seatAllocator');
 const { groupSpecialNeedSummary, requiresExtraTime, studentSpecialNeeds } = require('./planning/specialNeeds');
 const { validatePlacementConflicts, validateSameCourseHorizontalAdjacency, validateSameCourseDiagonalAdjacency, validateSingleCourseColumnSpacing, validateBooklets, validateExamCoverage, warning } = require('./planning/validationService');
@@ -155,6 +157,42 @@ function improvePlacements({ placements, classrooms, invigilators, dates, period
   return improved;
 }
 
+function shouldUseCpSat(strategy) {
+  return strategy !== 'heuristic' && strategy !== 'legacy_heuristic';
+}
+
+function scenarioInclude() {
+  return {
+    period: true,
+    schedules: true,
+    roomSlots: { include: { classroom: true, assignments: { include: { exam: { include: { course: true } } } } } },
+    rooms: { include: { exam: { include: { course: true } }, classroom: true, roomSlot: true } },
+    seats: { include: { student: true, seat: true, classroom: true, exam: { include: { course: true } } } },
+    invigilators: { include: { invigilator: true, exam: { include: { course: true } } } },
+  };
+}
+
+async function markScenarioFailed(scenarioId, exams, invigilators, warnings, optimizerStatus = 'ERROR') {
+  const metrics = buildScenarioMetrics({
+    exams,
+    placements: [],
+    roomStats: [],
+    invigilatorLoad: new Map(),
+    invigilators,
+    warnings,
+    scoreParts: [],
+    specialNeeds: { handledCount: 0, warningCount: 0 },
+    seatRisks: { sameCourseAdjacentSeatCount: 0, sameCourseSameBookletFrontBackAvoidableCount: 0, sameCourseSameBookletFrontBackUnavoidableCount: 0 },
+    explanations: [`CP-SAT durumu: ${optimizerStatus}`],
+    seatAssignments: [],
+  });
+  return prisma.planningScenario.update({
+    where: { id: scenarioId },
+    data: { status: 'FAILED', metrics: { ...metrics, optimizer: 'cp_sat', optimizerStatus }, warnings, score: metrics.score },
+    include: scenarioInclude(),
+  });
+}
+
 function toPlacement(candidate) {
   return {
     ...candidate,
@@ -209,6 +247,7 @@ async function persistPlacement(scenarioId, placement) {
   let totalSameCourseSameBookletFrontBackAvoidableCount = 0;
   let totalSameCourseSameBookletFrontBackUnavoidableCount = 0;
   const assignedStudentIds = new Set();
+  const createdSeatKeys = new Set();
   const schedulesCreated = new Map();
   const invigilatorsCreated = new Map();
 
@@ -239,11 +278,26 @@ async function persistPlacement(scenarioId, placement) {
 
     const assignedByExam = new Map();
     for (const assignment of seatResult.assignments) {
+      const seatKey = `${assignment.exam.id}:${assignment.student.id}`;
+      if (createdSeatKeys.has(seatKey)) continue;
+      createdSeatKeys.add(seatKey);
       assignedStudentIds.add(assignment.student.id);
       assignedByExam.set(assignment.exam.id, (assignedByExam.get(assignment.exam.id) || 0) + 1);
       allSeatAssignments.push({ ...assignment, examId: assignment.exam.id });
-      await prisma.seatAssignment.create({
-        data: {
+      await prisma.seatAssignment.upsert({
+        where: {
+          scenarioId_examId_studentId: {
+            scenarioId,
+            examId: assignment.exam.id,
+            studentId: assignment.student.id,
+          },
+        },
+        update: {
+          classroomId: room.id,
+          seatId: assignment.seat.id,
+          bookletType: assignment.bookletType || null,
+        },
+        create: {
           scenarioId,
           examId: assignment.exam.id,
           studentId: assignment.student.id,
@@ -327,11 +381,12 @@ async function runScenario(scenarioId) {
   }
 
   await ensurePeriodExams(scenario.periodId);
+  await syncCourseStudentCounts();
   const strategy = normalizeStrategy(scenario.strategy);
   const weights = strategyWeights(strategy);
   const config = DEFAULT_PLANNING_CONFIG;
 
-  const [period, classrooms, invigilators, exams] = await Promise.all([
+  const [period, classrooms, invigilators, exams, lockedAssignments] = await Promise.all([
     prisma.examPeriod.findUnique({ where: { id: scenario.periodId } }),
     prisma.classroom.findMany({ include: { seats: true }, orderBy: [{ capacity: 'asc' }, { code: 'asc' }] }),
     prisma.invigilator.findMany({ include: { availability: true }, orderBy: [{ priority: 'desc' }, { lastName: 'asc' }] }),
@@ -339,6 +394,7 @@ async function runScenario(scenarioId) {
       where: { periodId: scenario.periodId },
       include: { course: { include: { enrollments: { include: { student: true } } } } },
     }),
+    prisma.seatAssignment.findMany({ where: { scenarioId, locked: true }, include: { seat: true } }),
   ]);
 
   await prisma.$transaction([
@@ -354,18 +410,45 @@ async function runScenario(scenarioId) {
   const courseConflictMatrix = buildCourseConflictMatrix(exams);
   const groups = buildPlanningGroups(exams, courseConflictMatrix, classrooms, config, strategy);
   const warnings = [];
-  const placements = [];
+  let improvedPlacements = [];
+  let optimizerStatus = 'HEURISTIC';
 
-  for (const group of groups) {
-    const candidate = findBestPlacement({ group, classrooms, invigilators, placements, dates, period, strategy, weights, config });
-    if (!candidate) {
-      warnings.push(warning('UNPLACED', `${group.examGroups.map((item) => item.course.code).join(', ')} için geçerli kaynak kombinasyonu bulunamadı.`, 'hard'));
-      continue;
+  if (shouldUseCpSat(scenario.strategy)) {
+    let solved;
+    try {
+      solved = await solveWithCpSat({ groups, period, dates, classrooms, invigilators, weights, config, strategy, lockedAssignments });
+    } catch (error) {
+      const failureWarnings = [
+        warning(
+          'CP_SAT_WORKER_ERROR',
+          `CP-SAT worker çalıştırılamadı: ${error.message}. OR-Tools kurulu değilse \`npm run python:setup\` çalıştırın; model süre limitine takılıyorsa \`CP_SAT_WORKER_TIMEOUT_MS\` değerini artırabilir veya geçici olarak heuristic stratejisini seçebilirsiniz.`,
+          'hard',
+        ),
+      ];
+      return markScenarioFailed(scenarioId, exams, invigilators, failureWarnings, 'ERROR');
     }
-    placements.push(toPlacement(candidate));
+    optimizerStatus = solved.status;
+    if (solved.selectedPlacements.length > 0) {
+      improvedPlacements = solved.selectedPlacements;
+      if (solved.status === 'FEASIBLE') {
+        warnings.push(warning('CP_SAT_BEST_FEASIBLE', 'CP-SAT süre limiti içinde optimal kanıt üretmedi; bulunan en iyi geçerli plan kullanıldı.', 'soft'));
+      }
+    } else {
+      warnings.push(...(solved.diagnostics || []).map((item) => warning(item.type || 'CP_SAT_FAILED', item.message || 'CP-SAT plan üretemedi.', 'hard', item)));
+      return markScenarioFailed(scenarioId, exams, invigilators, warnings, optimizerStatus);
+    }
+  } else {
+    const placements = [];
+    for (const group of groups) {
+      const candidate = findBestPlacement({ group, classrooms, invigilators, placements, dates, period, strategy, weights, config });
+      if (!candidate) {
+        warnings.push(warning('UNPLACED', `${group.examGroups.map((item) => item.course.code).join(', ')} için geçerli kaynak kombinasyonu bulunamadı.`, 'hard'));
+        continue;
+      }
+      placements.push(toPlacement(candidate));
+    }
+    improvedPlacements = improvePlacements({ placements, classrooms, invigilators, dates, period, strategy, weights, config });
   }
-
-  const improvedPlacements = improvePlacements({ placements, classrooms, invigilators, dates, period, strategy, weights, config });
   const conflictWarnings = validatePlacementConflicts(improvedPlacements);
   warnings.push(...conflictWarnings);
 
@@ -435,15 +518,8 @@ async function runScenario(scenarioId) {
 
   return prisma.planningScenario.update({
     where: { id: scenarioId },
-    data: { status: warnings.some((item) => item.severity === 'hard') ? 'FAILED' : 'COMPLETED', metrics, warnings, score: metrics.score },
-    include: {
-      period: true,
-      schedules: true,
-      roomSlots: { include: { classroom: true, assignments: { include: { exam: { include: { course: true } } } } } },
-      rooms: { include: { exam: { include: { course: true } }, classroom: true, roomSlot: true } },
-      seats: { include: { student: true, seat: true, classroom: true, exam: { include: { course: true } } } },
-      invigilators: { include: { invigilator: true, exam: { include: { course: true } } } },
-    },
+    data: { status: warnings.some((item) => item.severity === 'hard') ? 'FAILED' : 'COMPLETED', metrics: { ...metrics, optimizer: shouldUseCpSat(scenario.strategy) ? 'cp_sat' : 'heuristic', optimizerStatus }, warnings, score: metrics.score },
+    include: scenarioInclude(),
   });
 }
 

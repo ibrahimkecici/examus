@@ -4,8 +4,9 @@ function placementExplanation(placement) {
   const roomLabels = placement.rooms.map((r) => r.code).join(' + ');
   const codes = placement.group.examGroups.map((group) => group.course.code);
   const prefix = placement.group.mixed ? `${codes.join(', ')} karma salon` : codes[0];
-  const utilization = placement.roomCandidate.totalCapacity > 0 ? Math.round((placement.group.students.length / placement.roomCandidate.totalCapacity) * 100) : 0;
-  const capLabel = placement.roomCandidate.usedSafeCapacity ? `${placement.roomCandidate.totalCapacity} emniyetli` : placement.roomCandidate.totalCapacity;
+  const totalCapacity = placement.roomCandidate?.totalCapacity || placement.group.students.length;
+  const utilization = totalCapacity > 0 ? Math.round((placement.group.students.length / totalCapacity) * 100) : 0;
+  const capLabel = placement.roomCandidate?.usedSafeCapacity ? `${totalCapacity} emniyetli` : totalCapacity;
   return `${prefix}, ${roomLabels} dersliğine yerleştirildi; ${placement.group.students.length}/${capLabel} doluluk (%${utilization}) ve uygun gözetmen yükü sağlandı.`;
 }
 

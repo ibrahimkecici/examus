@@ -94,6 +94,23 @@ AI_MODEL="gpt-4o-mini"
 
 AI anahtarı tanımlanmadığında sistem heuristic öneri üretir.
 
+## CP-SAT Optimizasyon
+
+Varsayılan sınav planlama akışı Python OR-Tools CP-SAT worker kullanır. Backend bağımlılıklarına ek olarak Python bağımlılığını kurun:
+
+```bash
+npm run python:setup
+```
+
+Bu komut repo içinde `.venv` oluşturur ve OR-Tools’u sistem Python’una dokunmadan oraya kurar. Manuel kurulum isterseniz:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+OR-Tools kurulu değilse `optimal_cp_sat` planlama çalıştırması anlaşılır hata ile `FAILED` döner. Eski JS tabanlı planlayıcıyı kullanmak için planlama stratejisini `heuristic` seçin.
+
 ## Veritabanı
 
 PostgreSQL çalışır durumda olmalıdır. Sonra Prisma client ve migration çalıştırılır:

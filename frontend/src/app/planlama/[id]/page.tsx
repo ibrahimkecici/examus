@@ -51,8 +51,10 @@ type Scenario = {
 };
 
 const STRATEGY_LABELS: Record<string, string> = {
+  optimal_cp_sat: 'Kesin Optimizasyon',
   efficient: 'Verimli', compact: 'Kompakt', balanced: 'Dengeli',
   minimum_rooms: 'Minimum Derslik', fair_invigilator: 'Adil Gozetmen', student_friendly: 'Ogrenci Dostu',
+  heuristic: 'Eski Heuristik',
 };
 
 const TABS = ['Ozet', 'Takvim', 'Derslikler', 'Gozetmenler'] as const;

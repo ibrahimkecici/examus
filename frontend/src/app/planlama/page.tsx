@@ -12,7 +12,7 @@ type Scenario = { id: string; name: string; strategy: string; status: string; sc
 export default function PlanningPage() {
   const [periods, setPeriods] = useState<Period[]>([]);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [form, setForm] = useState({ periodId: '', name: '', strategy: 'efficient' });
+  const [form, setForm] = useState({ periodId: '', name: '', strategy: 'optimal_cp_sat' });
   const [selected, setSelected] = useState<Scenario | null>(null);
 
   async function load() {
@@ -33,7 +33,7 @@ export default function PlanningPage() {
   async function createScenario(event: React.FormEvent) {
     event.preventDefault();
     await apiFetch('/planning/scenarios', { method: 'POST', body: JSON.stringify(form) });
-    setForm({ periodId: '', name: '', strategy: 'efficient' });
+    setForm({ periodId: '', name: '', strategy: 'optimal_cp_sat' });
     await load();
   }
 
@@ -64,12 +64,14 @@ export default function PlanningPage() {
         </select>
         <input required placeholder="Senaryo adı" className="rounded-md border px-3 py-2 dark:border-slate-700 dark:bg-slate-950" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <select className="rounded-md border px-3 py-2 dark:border-slate-700 dark:bg-slate-950" value={form.strategy} onChange={(e) => setForm({ ...form, strategy: e.target.value })}>
+          <option value="optimal_cp_sat">Kesin Optimizasyon</option>
           <option value="efficient">Verimli</option>
           <option value="compact">Kompakt</option>
           <option value="balanced">Dengeli</option>
           <option value="minimum_rooms">Minimum Derslik</option>
           <option value="fair_invigilator">Adil Gözetmen</option>
           <option value="student_friendly">Öğrenci Dostu</option>
+          <option value="heuristic">Eski Heuristik</option>
         </select>
         <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white">Senaryo Oluştur</button>
       </form>

@@ -87,6 +87,8 @@ function strategyWeights(strategy) {
 }
 
 function normalizeStrategy(strategy) {
+  if (strategy === 'optimal_cp_sat') return 'efficient';
+  if (strategy === 'heuristic' || strategy === 'legacy_heuristic') return 'efficient';
   if (STRATEGY_WEIGHTS[strategy]) return strategy;
   if (strategy === 'spread') return 'balanced';
   return 'efficient';
