@@ -24,9 +24,11 @@ export default function ReportsPage() {
           scenario.status,
           Math.round(scenario.score),
           <div key={scenario.id} className="flex flex-wrap gap-2">
-            <a className="rounded-md border px-2 py-1 text-sm" href={getApiUrl(`/reports/scenarios/${scenario.id}/calendar.xlsx?token=${encodeURIComponent(token)}`)}>Excel</a>
-            <a className="rounded-md border px-2 py-1 text-sm" href={getApiUrl(`/reports/scenarios/${scenario.id}/calendar.pdf?token=${encodeURIComponent(token)}`)}>PDF</a>
+            <a className="rounded-md border px-2 py-1 text-sm" href={getApiUrl(`/reports/scenarios/${scenario.id}/calendar.xlsx?token=${encodeURIComponent(token)}`)}>Takvim (Excel)</a>
+            <a className="rounded-md border px-2 py-1 text-sm" href={getApiUrl(`/reports/scenarios/${scenario.id}/calendar.pdf?token=${encodeURIComponent(token)}`)}>Takvim (PDF)</a>
             <a className="rounded-md border px-2 py-1 text-sm" href={getApiUrl(`/reports/scenarios/${scenario.id}/invigilators.xlsx?token=${encodeURIComponent(token)}`)}>Gözetmen</a>
+            <a className="rounded-md border px-2 py-1 text-sm" href={getApiUrl(`/reports/scenarios/${scenario.id}/students.xlsx?token=${encodeURIComponent(token)}`)}>Öğrenci</a>
+            <a className="rounded-md border px-2 py-1 text-sm" href={getApiUrl(`/reports/scenarios/${scenario.id}/classrooms.xlsx?token=${encodeURIComponent(token)}`)}>Derslik</a>
           </div>,
         ])}
       />

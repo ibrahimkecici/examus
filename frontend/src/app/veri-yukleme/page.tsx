@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import DataTable from '@/components/DataTable';
+import Modal from '@/components/Modal';
 import StatusPill from '@/components/StatusPill';
 import { apiFetch } from '@/lib/api';
 
 type Batch = { id: string; entityType: string; fileName?: string; status: string; totalRows: number; successRows: number; errorRows: number; createdAt: string };
+type ImportError = { row: number; field?: string; message: string };
 
 const SCHEMAS: Record<string, { label: string; columns: { name: string; required?: boolean; note?: string }[] }> = {
   students: {
@@ -55,10 +57,16 @@ export default function ImportPage() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [message, setMessage] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [errorBatch, setErrorBatch] = useState<{ id: string; fileName?: string; errors: ImportError[] } | null>(null);
 
   useEffect(() => {
     apiFetch<Batch[]>('/imports').then((response) => setBatches(response.data)).catch(console.error);
   }, []);
+
+  async function showErrors(batch: Batch) {
+    const response = await apiFetch<ImportError[]>(`/imports/${batch.id}/errors`);
+    setErrorBatch({ id: batch.id, fileName: batch.fileName, errors: response.data });
+  }
 
   async function upload(type: string, file?: File) {
     if (!file) return;
@@ -124,7 +132,7 @@ export default function ImportPage() {
       </div>
 
       <DataTable
-        columns={['Tip', 'Dosya', 'Durum', 'Toplam', 'Başarılı', 'Hatalı']}
+        columns={['Tip', 'Dosya', 'Durum', 'Toplam', 'Başarılı', 'Hatalı', '']}
         rows={batches.map((batch) => [
           batch.entityType,
           batch.fileName || '-',
@@ -132,8 +140,40 @@ export default function ImportPage() {
           batch.totalRows,
           batch.successRows,
           batch.errorRows,
+          batch.errorRows > 0
+            ? <button key={`err-${batch.id}`} onClick={() => showErrors(batch)} className="rounded border px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950">Hataları Gör</button>
+            : null,
         ])}
       />
+
+      {errorBatch && (
+        <Modal title={`Hata Detayları — ${errorBatch.fileName || errorBatch.id}`} onClose={() => setErrorBatch(null)}>
+          {errorBatch.errors.length === 0 ? (
+            <p className="text-sm text-slate-500">Hata kaydı bulunamadı.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-950 text-xs text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Satır</th>
+                    <th className="px-3 py-2 text-left">Alan</th>
+                    <th className="px-3 py-2 text-left">Hata</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {errorBatch.errors.map((err, i) => (
+                    <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="px-3 py-2 tabular-nums">{err.row}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-blue-600">{err.field || '-'}</td>
+                      <td className="px-3 py-2 text-red-600 dark:text-red-400">{err.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }

@@ -83,7 +83,10 @@ export default function ScenarioDetailPage() {
   async function run() { await apiFetch(`/planning/scenarios/${params.id}/run`, { method: 'POST' }); await reload(); }
   async function recheck() { await apiFetch(`/planning/scenarios/${params.id}/recheck`, { method: 'POST' }); await reload(); }
   async function approve() { await apiFetch(`/planning/scenarios/${params.id}/approve`, { method: 'POST' }); await reload(); }
-  async function generateInsight() { await apiFetch(`/ai/scenarios/${params.id}/insights`, { method: 'POST' }); await reload(); }
+  async function generateInsight() {
+    await apiFetch(`/ai/scenarios/${params.id}/insights`, { method: 'POST' });
+    await reload();
+  }
 
   if (error) return <div className="p-6 text-red-600">{error}</div>;
   if (!scenario) return <div className="p-6">Yukleniyor...</div>;

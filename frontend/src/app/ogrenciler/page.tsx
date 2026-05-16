@@ -5,9 +5,9 @@ import DataTable from '@/components/DataTable';
 import Modal, { ConfirmDialog } from '@/components/Modal';
 import { apiFetch } from '@/lib/api';
 
-type Student = { id: string; studentNo: string; fullName: string; department: string; classLevel?: number; enrollments: Array<{ course: { code: string } }> };
+type Student = { id: string; studentNo: string; fullName: string; department: string; classLevel?: number; specialNeeds?: string; enrollments: Array<{ course: { code: string } }> };
 
-const emptyForm = { studentNo: '', fullName: '', department: '' };
+const emptyForm = { studentNo: '', fullName: '', department: '', specialNeeds: '' };
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -48,7 +48,7 @@ export default function StudentsPage() {
 
   function startEdit(index: number) {
     const s = students[index];
-    setForm({ studentNo: s.studentNo, fullName: s.fullName, department: s.department });
+    setForm({ studentNo: s.studentNo, fullName: s.fullName, department: s.department, specialNeeds: s.specialNeeds || '' });
     setEditTarget(s);
   }
 
@@ -61,10 +61,11 @@ export default function StudentsPage() {
         <p className="text-slate-500">Öğrenci kayıtları ve ders eşleşmeleri.</p>
       </header>
 
-      <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-4">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-5">
         <input required placeholder="Öğrenci No" className={inputCls} value={form.studentNo} onChange={(e) => setForm({ ...form, studentNo: e.target.value })} />
         <input required placeholder="Ad Soyad" className={inputCls} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
         <input required placeholder="Bölüm" className={inputCls} value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
+        <input placeholder="Özel İhtiyaç (isteğe bağlı)" className={inputCls} value={form.specialNeeds} onChange={(e) => setForm({ ...form, specialNeeds: e.target.value })} />
         <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">Ekle</button>
       </form>
 
@@ -89,6 +90,10 @@ export default function StudentsPage() {
             <div>
               <label className="mb-1 block text-xs text-slate-500">Bölüm</label>
               <input required className={inputCls} value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">Özel İhtiyaç</label>
+              <input className={inputCls} placeholder="Örn: tekerlekli sandalye, ek süre" value={form.specialNeeds} onChange={(e) => setForm({ ...form, specialNeeds: e.target.value })} />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setEditTarget(null)} className="rounded-md border px-4 py-2 text-sm dark:border-slate-700">İptal</button>
