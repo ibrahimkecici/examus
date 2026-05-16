@@ -14,6 +14,8 @@ export default function PlanningPage() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [form, setForm] = useState({ periodId: '', name: '', strategy: 'optimal_cp_sat' });
   const [selected, setSelected] = useState<Scenario | null>(null);
+  const [runningId, setRunningId] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string>('');
 
   async function load() {
     const [periodResponse, scenarioResponse] = await Promise.all([apiFetch<Period[]>('/exam-periods'), apiFetch<Scenario[]>('/planning/scenarios')]);
@@ -38,9 +40,19 @@ export default function PlanningPage() {
   }
 
   async function run(id: string) {
-    const response = await apiFetch<Scenario>(`/planning/scenarios/${id}/run`, { method: 'POST' });
-    setSelected(response.data);
-    await load();
+    if (runningId) return;
+    setRunError('');
+    setRunningId(id);
+    try {
+      const response = await apiFetch<Scenario>(`/planning/scenarios/${id}/run`, { method: 'POST' });
+      setSelected(response.data);
+      await load();
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : 'Planlama çalıştırılamadı.');
+      await load();
+    } finally {
+      setRunningId(null);
+    }
   }
 
   async function approve(id: string) {
@@ -75,6 +87,11 @@ export default function PlanningPage() {
         </select>
         <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white">Senaryo Oluştur</button>
       </form>
+      {runError ? (
+        <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+          {runError}
+        </div>
+      ) : null}
       <DataTable
         columns={['Ad', 'Dönem', 'Strateji', 'Durum', 'Skor', 'Aksiyon']}
         rows={scenarios.map((scenario) => [
@@ -85,7 +102,13 @@ export default function PlanningPage() {
           Math.round(scenario.score),
           <div key={scenario.id} className="flex flex-wrap gap-2">
             <Link href={`/planlama/${scenario.id}`} className="rounded-md border px-2 py-1 text-sm">Detay</Link>
-            <button onClick={() => run(scenario.id)} className="rounded-md border px-2 py-1 text-sm">Calistir</button>
+            <button
+              onClick={() => run(scenario.id)}
+              disabled={runningId === scenario.id}
+              className="rounded-md border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {runningId === scenario.id ? 'Çalışıyor…' : 'Çalıştır'}
+            </button>
             <button onClick={() => insight(scenario.id)} className="rounded-md border px-2 py-1 text-sm">AI</button>
             <button onClick={() => approve(scenario.id)} className="rounded-md border px-2 py-1 text-sm">Onayla</button>
           </div>,

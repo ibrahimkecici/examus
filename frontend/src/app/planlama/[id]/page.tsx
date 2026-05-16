@@ -53,23 +53,25 @@ type Scenario = {
 const STRATEGY_LABELS: Record<string, string> = {
   optimal_cp_sat: 'Kesin Optimizasyon',
   efficient: 'Verimli', compact: 'Kompakt', balanced: 'Dengeli',
-  minimum_rooms: 'Minimum Derslik', fair_invigilator: 'Adil Gozetmen', student_friendly: 'Ogrenci Dostu',
+  minimum_rooms: 'Minimum Derslik', fair_invigilator: 'Adil Gözetmen', student_friendly: 'Öğrenci Dostu',
   heuristic: 'Eski Heuristik',
 };
 
-const TABS = ['Ozet', 'Takvim', 'Derslikler', 'Gozetmenler'] as const;
+const TABS = ['Özet', 'Takvim', 'Derslikler', 'Gözetmenler'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function ScenarioDetailPage() {
   const params = useParams<{ id: string }>();
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<Tab>('Ozet');
+  const [activeTab, setActiveTab] = useState<Tab>('Özet');
+  const [running, setRunning] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     apiFetch<Scenario>(`/planning/scenarios/${params.id}`)
       .then((r) => setScenario(r.data))
-      .catch((err) => setError(err instanceof Error ? err.message : 'Yuklenemedi.'));
+      .catch((err) => setError(err instanceof Error ? err.message : 'Yüklenemedi.'));
   }, [params.id]);
 
   async function reload() {
@@ -78,11 +80,24 @@ export default function ScenarioDetailPage() {
       const r = await apiFetch<Scenario>(`/planning/scenarios/${params.id}`);
       setScenario(r.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Yuklenemedi.');
+      setError(err instanceof Error ? err.message : 'Yüklenemedi.');
     }
   }
 
-  async function run() { await apiFetch(`/planning/scenarios/${params.id}/run`, { method: 'POST' }); await reload(); }
+  async function run() {
+    if (running) return;
+    setActionError('');
+    setRunning(true);
+    try {
+      await apiFetch(`/planning/scenarios/${params.id}/run`, { method: 'POST' });
+      await reload();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Planlama çalıştırılamadı.');
+      await reload();
+    } finally {
+      setRunning(false);
+    }
+  }
   async function recheck() { await apiFetch(`/planning/scenarios/${params.id}/recheck`, { method: 'POST' }); await reload(); }
   async function approve() { await apiFetch(`/planning/scenarios/${params.id}/approve`, { method: 'POST' }); await reload(); }
   async function generateInsight() {
@@ -91,7 +106,7 @@ export default function ScenarioDetailPage() {
   }
 
   if (error) return <div className="p-6 text-red-600">{error}</div>;
-  if (!scenario) return <div className="p-6">Yukleniyor...</div>;
+  if (!scenario) return <div className="p-6">Yükleniyor...</div>;
 
   const roomSlotsByDate = groupSlotsByDate(scenario.roomSlots);
   const seatSlotsByClassroom = groupSeatsByClassroom(scenario.seats);
@@ -110,15 +125,26 @@ export default function ScenarioDetailPage() {
         <InfoCard label="Durum"><StatusPill tone={scenario.status === 'APPROVED' ? 'green' : scenario.status === 'COMPLETED' ? 'blue' : scenario.status === 'FAILED' ? 'rose' : 'slate'}>{scenario.status}</StatusPill></InfoCard>
         <InfoCard label="Skor" value={Math.round(scenario.score)} />
         <InfoCard label="Strateji" value={STRATEGY_LABELS[scenario.strategy] || scenario.strategy} />
-        <InfoCard label="Guncelleme" value={formatDate(scenario.updatedAt)} />
+        <InfoCard label="Güncelleme" value={formatDate(scenario.updatedAt)} />
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={run} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Calistir</button>
-        <button onClick={recheck} className="rounded-md border px-3 py-2 text-sm">Tekrar Kontrol Et</button>
-        <button onClick={approve} disabled={scenario.status === 'APPROVED'} className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Onayla</button>
-        <button onClick={generateInsight} className="rounded-md border px-3 py-2 text-sm">AI Onerisi Uret</button>
+        <button
+          onClick={run}
+          disabled={running}
+          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {running ? 'Çalışıyor…' : 'Çalıştır'}
+        </button>
+        <button onClick={recheck} disabled={running} className="rounded-md border px-3 py-2 text-sm disabled:opacity-60">Tekrar Kontrol Et</button>
+        <button onClick={approve} disabled={scenario.status === 'APPROVED' || running} className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Onayla</button>
+        <button onClick={generateInsight} disabled={running} className="rounded-md border px-3 py-2 text-sm disabled:opacity-60">AI Önerisi Üret</button>
       </div>
+      {actionError ? (
+        <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+          {actionError}
+        </div>
+      ) : null}
 
       <ScenarioExportPanel scenario={scenario} />
 
@@ -137,17 +163,17 @@ export default function ScenarioDetailPage() {
             {tab === 'Derslikler' && scenario.roomSlots.length > 0 && (
               <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-800">{scenario.roomSlots.length}</span>
             )}
-            {tab === 'Gozetmenler' && scenario.invigilators.length > 0 && (
+            {tab === 'Gözetmenler' && scenario.invigilators.length > 0 && (
               <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs dark:bg-slate-800">{scenario.invigilators.length}</span>
             )}
           </button>
         ))}
       </nav>
 
-      {activeTab === 'Ozet' && <OverviewTab scenario={scenario} />}
+      {activeTab === 'Özet' && <OverviewTab scenario={scenario} />}
       {activeTab === 'Takvim' && <ScheduleTab schedules={scenario.schedules} />}
       {activeTab === 'Derslikler' && <ClassroomTab roomSlotsByDate={roomSlotsByDate} seatSlotsByClassroom={seatSlotsByClassroom} examCoverage={scenario.metrics?.examCoverage as ExamCoverageEntry[] | undefined} />}
-      {activeTab === 'Gozetmenler' && <InvigilatorTab invigilators={scenario.invigilators} />}
+      {activeTab === 'Gözetmenler' && <InvigilatorTab invigilators={scenario.invigilators} />}
     </div>
   );
 }
@@ -253,8 +279,8 @@ function OverviewTab({ scenario }: { scenario: Scenario }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <InfoCard label="Toplam Sinav" value={totalExams || '-'} />
-        <InfoCard label="Atanmis Ogrenci" value={totalStudents || '-'} />
+        <InfoCard label="Toplam Sınav" value={totalExams || '-'} />
+        <InfoCard label="Atanmış Öğrenci" value={totalStudents || '-'} />
         <InfoCard label="Kullanilan Derslik" value={totalRooms || '-'} />
         <InfoCard
           label="Kapsam"
@@ -266,7 +292,7 @@ function OverviewTab({ scenario }: { scenario: Scenario }) {
       {coverage && coverage.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
-            <h3 className="font-semibold text-sm">Sinav Atama Kapsamı</h3>
+            <h3 className="font-semibold text-sm">Sınav Atama Kapsamı</h3>
             {hasIncomplete && (
               <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-950 dark:text-red-400">
                 Eksik Atama Var
@@ -315,7 +341,7 @@ function OverviewTab({ scenario }: { scenario: Scenario }) {
 
       {scenario.warnings && scenario.warnings.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
-          <h3 className="mb-2 font-semibold text-amber-700 dark:text-amber-400">Uyarilar ({scenario.warnings.length})</h3>
+          <h3 className="mb-2 font-semibold text-amber-700 dark:text-amber-400">Uyarılar ({scenario.warnings.length})</h3>
           <p className="mb-2 text-sm text-amber-800 dark:text-amber-300">Tek kitapçıklı sınavlarda bazı ön-arka yerleşimler kaçınılmaz olabilir.</p>
           <ul className="space-y-1">
             {scenario.warnings.map((w, i) => (
@@ -345,7 +371,7 @@ function OverviewTab({ scenario }: { scenario: Scenario }) {
 }
 
 function ScheduleTab({ schedules }: { schedules: Schedule[] }) {
-  if (schedules.length === 0) return <p className="text-slate-500">Henuz takvim olusturulmadi.</p>;
+  if (schedules.length === 0) return <p className="text-slate-500">Henüz takvim oluşturulmadı.</p>;
   const sorted = [...schedules].sort((a, b) => {
     const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
     if (dateDiff !== 0) return dateDiff;
@@ -353,7 +379,7 @@ function ScheduleTab({ schedules }: { schedules: Schedule[] }) {
   });
   return (
     <DataTable
-      columns={['Tarih', 'Baslangic', 'Bitis', 'Sure (dk)']}
+      columns={['Tarih', 'Başlangıç', 'Bitiş', 'Süre (dk)']}
       rows={sorted.map((s) => [formatDate(s.date), s.startTime, s.endTime, s.durationMinutes])}
     />
   );
@@ -369,7 +395,7 @@ function ClassroomTab({
   examCoverage?: ExamCoverageEntry[];
 }) {
   const coverageByExamId = new Map((examCoverage || []).map((e) => [e.examId, e]));
-  if (Object.keys(roomSlotsByDate).length === 0) return <p className="text-slate-500">Henuz derslik atamasi yapilmadi.</p>;
+  if (Object.keys(roomSlotsByDate).length === 0) return <p className="text-slate-500">Henüz derslik ataması yapılmadı.</p>;
 
   return (
     <div className="space-y-8">
@@ -516,10 +542,10 @@ const COURSE_COLORS = [
 ];
 
 function InvigilatorTab({ invigilators }: { invigilators: InvigilatorAssignment[] }) {
-  if (invigilators.length === 0) return <p className="text-slate-500">Henuz gozetmen atamasi yapilmadi.</p>;
+  if (invigilators.length === 0) return <p className="text-slate-500">Henüz gözetmen ataması yapılmadı.</p>;
   return (
     <DataTable
-      columns={['Gozetmen', 'Unvan', 'Ders', 'Rol']}
+      columns={['Gözetmen', 'Unvan', 'Ders', 'Rol']}
       rows={invigilators.map((a) => [
         `${a.invigilator.firstName} ${a.invigilator.lastName}`,
         a.invigilator.title,

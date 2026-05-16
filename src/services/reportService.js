@@ -532,6 +532,35 @@ async function buildCalendarWorkbook(scenarioId) {
   return buildScenarioWorkbook(scenarioId, 'calendar');
 }
 
+const COURSE_PALETTE = [
+  { fill: '#dbeafe', text: '#1e3a8a', border: '#93c5fd' },
+  { fill: '#dcfce7', text: '#14532d', border: '#86efac' },
+  { fill: '#fef3c7', text: '#78350f', border: '#fcd34d' },
+  { fill: '#fce7f3', text: '#831843', border: '#f9a8d4' },
+  { fill: '#ede9fe', text: '#4c1d95', border: '#c4b5fd' },
+  { fill: '#cffafe', text: '#155e75', border: '#67e8f9' },
+  { fill: '#ffe4e6', text: '#881337', border: '#fda4af' },
+  { fill: '#e0e7ff', text: '#312e81', border: '#a5b4fc' },
+  { fill: '#ecfccb', text: '#365314', border: '#bef264' },
+  { fill: '#fed7aa', text: '#7c2d12', border: '#fdba74' },
+];
+
+const NEUTRAL_COURSE_COLOR = { fill: '#ffffff', text: '#0f172a', border: '#cbd5e1' };
+
+function hashCourseCode(code) {
+  let h = 0;
+  const str = String(code);
+  for (let i = 0; i < str.length; i += 1) {
+    h = (h * 31 + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+function courseColor(code) {
+  if (!code) return NEUTRAL_COURSE_COLOR;
+  return COURSE_PALETTE[hashCourseCode(code) % COURSE_PALETTE.length];
+}
+
 function pageBounds(doc) {
   return {
     left: doc.page.margins.left,
@@ -786,9 +815,13 @@ function drawSeatGrid(doc, slotRow) {
       const seat = seatsByPosition.get(`${row}:${column}`);
       const assignment = seat ? assignmentsBySeat.get(seat.id) : null;
       const disabled = !seat || seat.status !== 'AKTIF';
-      doc.roundedRect(x, y, cellWidth, cellHeight, 2).fillAndStroke(disabled ? '#f1f5f9' : assignment ? '#dbeafe' : '#ffffff', '#cbd5e1');
+      const assignmentColor = assignment ? courseColor(assignment.exam.course.code) : null;
+      const cellFill = disabled ? '#f1f5f9' : assignmentColor ? assignmentColor.fill : '#ffffff';
+      const cellStroke = assignmentColor ? assignmentColor.border : '#cbd5e1';
+      doc.roundedRect(x, y, cellWidth, cellHeight, 2).fillAndStroke(cellFill, cellStroke);
       const label = disabled ? 'X' : assignment ? `${assignment.seat.label} ${assignment.exam.course.code}${seatBookletLabel(assignment)}` : seat.label;
-      doc.fontSize(5.6).fillColor(disabled ? '#94a3b8' : '#0f172a').text(label, x + 2, y + 5, {
+      const labelColor = disabled ? '#94a3b8' : assignmentColor ? assignmentColor.text : '#0f172a';
+      doc.fontSize(5.6).fillColor(labelColor).text(label, x + 2, y + 5, {
         width: cellWidth - 4,
         height: cellHeight - 6,
         align: 'center',
