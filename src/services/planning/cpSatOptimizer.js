@@ -129,6 +129,11 @@ function buildInvigilatorCombinations(invigilators, group, schedule, requiredCou
     .slice(0, MAX_INVIGILATOR_COMBINATIONS_PER_OPTION);
 }
 
+function physicalCapacityForRooms(rooms) {
+  const physical = rooms.reduce((sum, room) => sum + Number(room.capacity || 0), 0);
+  return physical || rooms.reduce((sum, room) => sum + Number(room.examCapacity || 0), 0);
+}
+
 function buildCpSatInput({ groups, period, dates, classrooms, invigilators, weights, config, strategy, lockedAssignments = [] }) {
   const lockedByExam = lockedClassroomsByExam(lockedAssignments);
   const options = [];
@@ -144,9 +149,13 @@ function buildCpSatInput({ groups, period, dates, classrooms, invigilators, weig
     const schedules = buildScheduleCandidates(group, period, dates).filter((schedule) => scheduleMatchesPinned(schedule, pinned));
     const roomCandidates = buildRoomCandidates(classrooms, group.examGroups, weights, strategy).filter((candidate) => roomCandidateHonorsLockedSeats(group, candidate, lockedByExam));
     const requiredInvigilators = requiredInvigilatorCount(group.students.length, config);
+    const separateInvigilatorCount = group.examGroups.reduce((sum, examGroup) => sum + requiredInvigilatorCount(examGroup.students.length, config), 0);
 
     for (const schedule of schedules) {
       for (const roomCandidate of roomCandidates) {
+        const physicalCapacity = physicalCapacityForRooms(roomCandidate.rooms) || roomCandidate.physicalCapacity || roomCandidate.totalCapacity;
+        const roomSavings = group.mixed ? Math.max(0, group.examGroups.length - roomCandidate.rooms.length) : 0;
+        const invigilatorSavings = group.mixed ? Math.max(0, separateInvigilatorCount - requiredInvigilators) : 0;
         const invigilatorCombos = buildInvigilatorCombinations(
           invigilators,
           group,
@@ -173,11 +182,19 @@ function buildCpSatInput({ groups, period, dates, classrooms, invigilators, weig
             slotIndex: dates.length * 10 + options.length,
             scheduleKey: scheduleKey(schedule),
             roomWaste: Math.max(0, roomCandidate.totalCapacity - group.students.length),
+            physicalRoomWaste: Math.max(0, physicalCapacity - group.students.length),
             utilizationPercent: roomCandidate.totalCapacity > 0 ? Math.round((group.students.length / roomCandidate.totalCapacity) * 100) : 0,
+            physicalUtilizationPercent: physicalCapacity > 0 ? Math.round((group.students.length / physicalCapacity) * 100) : 0,
+            effectiveExamCapacity: roomCandidate.totalCapacity,
+            physicalCapacity,
+            capacity: roomCandidate.totalCapacity,
+            studentCount: group.students.length,
             roomCount: roomCandidate.rooms.length,
             roomScore: Math.round(roomCandidate.score),
             invigilatorScore: combo.score,
             mixed: group.mixed,
+            mixedRoomSavings: roomSavings,
+            mixedInvigilatorSavings: invigilatorSavings,
           });
         }
       }
@@ -262,10 +279,13 @@ function placementsFromCpSatResult({ result, input, groups, classrooms, invigila
     const group = groupById.get(option.groupId);
     const rooms = option.roomIds.map((roomId) => classroomById.get(roomId)).filter(Boolean);
     const selectedInvigilators = option.invigilatorIds.map((invigilatorId) => invigilatorById.get(invigilatorId)).filter(Boolean);
-    const totalCapacity = group.students.length + option.roomWaste;
-    const mixedBonus = group.mixed ? weights.mixedRoomEfficiencyBonus + Math.max(0, group.exams.length - 1) * weights.roomCountPenalty : 0;
+    const totalCapacity = option.effectiveExamCapacity ?? group.students.length + option.roomWaste;
+    const physicalCapacity = (option.physicalCapacity ?? rooms.reduce((sum, room) => sum + Number(room?.capacity || 0), 0)) || totalCapacity;
+    const mixedBonus = group.mixed
+      ? (option.mixedRoomSavings || 0) * weights.mixedRoomEfficiencyBonus + (option.mixedInvigilatorSavings || 0) * Math.round(weights.invigilatorFairnessPenalty * 0.6)
+      : 0;
     const scoreParts = {
-      roomEfficiency: option.roomScore + Math.max(0, option.roomCount - 1) * weights.roomCountPenalty * 3,
+      roomEfficiency: option.roomScore + option.physicalRoomWaste + Math.max(0, option.roomCount - 1) * weights.roomCountPenalty * 3,
       invigilatorFairness: option.invigilatorScore,
       studentLoadBalance: 0,
       timeEfficiency: option.dateIndex * weights.compactSlotPenalty,
@@ -287,6 +307,8 @@ function placementsFromCpSatResult({ result, input, groups, classrooms, invigila
       roomCandidate: {
         rooms,
         totalCapacity,
+        effectiveExamCapacity: totalCapacity,
+        physicalCapacity,
         usedSafeCapacity: false,
         score: option.roomScore,
       },

@@ -84,6 +84,21 @@ test('CP-SAT input reports infeasible groups when capacity is insufficient', () 
   assert.equal(input.diagnostics[0].type, 'NO_OPTIONS_FOR_GROUP');
 });
 
+test('CP-SAT input separates effective exam capacity from physical room capacity', () => {
+  const students = Array.from({ length: 4 }, (_, index) => ({ id: `S${index}` }));
+  const item = exam('E1', 'MAT101', students);
+  const input = buildCpSatInput(baseInputArgs([makeSingleGroup(item)], [roomWithGrid('R1', 4, 4)]));
+  const option = input.options[0];
+
+  assert.equal(option.studentCount, 4);
+  assert.equal(option.effectiveExamCapacity, 8);
+  assert.equal(option.physicalCapacity, 16);
+  assert.equal(option.utilizationPercent, 50);
+  assert.equal(option.physicalUtilizationPercent, 25);
+  assert.equal(option.roomWaste, 4);
+  assert.equal(option.physicalRoomWaste, 12);
+});
+
 test('CP-SAT input filters room options that would break locked classroom assignments', () => {
   const students = [{ id: 'S1' }, { id: 'S2' }];
   const item = exam('E1', 'MAT101', students);

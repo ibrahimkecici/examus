@@ -353,7 +353,7 @@ async function persistPlacement(scenarioId, placement) {
       roomId: room.id,
       roomSlotId: roomSlot.id,
       mixed: placement.group.mixed,
-      capacity: activeSeatCapacity(room),
+      capacity: Number(room.capacity || 0) || activeSeatCapacity(room),
       effectiveCapacity: getEffectiveCapacity(room, isSingleCourse, multiBooklet),
       assignedCount: seatResult.assignments.length,
     });
@@ -396,6 +396,8 @@ async function runScenario(scenarioId) {
     }),
     prisma.seatAssignment.findMany({ where: { scenarioId, locked: true }, include: { seat: true } }),
   ]);
+  const activeExams = exams.filter((exam) => getExamStudents(exam).length > 0);
+  const skippedExams = exams.filter((exam) => getExamStudents(exam).length === 0);
 
   await prisma.$transaction([
     prisma.seatAssignment.deleteMany({ where: { scenarioId } }),
@@ -407,9 +409,11 @@ async function runScenario(scenarioId) {
   ]);
 
   const dates = sortDatesForStrategy(period, strategy);
-  const courseConflictMatrix = buildCourseConflictMatrix(exams);
-  const groups = buildPlanningGroups(exams, courseConflictMatrix, classrooms, config, strategy);
-  const warnings = [];
+  const courseConflictMatrix = buildCourseConflictMatrix(activeExams);
+  const groups = buildPlanningGroups(activeExams, courseConflictMatrix, classrooms, config, strategy);
+  const warnings = skippedExams.map((exam) =>
+    warning('ZERO_ENROLLMENT_EXAM_SKIPPED', `${exam.course?.code || exam.id} sınavı kayıtlı öğrencisi olmadığı için planlama dışında bırakıldı.`, 'info', { examId: exam.id }),
+  );
   let improvedPlacements = [];
   let optimizerStatus = 'HEURISTIC';
 
@@ -425,7 +429,7 @@ async function runScenario(scenarioId) {
           'hard',
         ),
       ];
-      return markScenarioFailed(scenarioId, exams, invigilators, failureWarnings, 'ERROR');
+      return markScenarioFailed(scenarioId, activeExams, invigilators, failureWarnings, 'ERROR');
     }
     optimizerStatus = solved.status;
     if (solved.selectedPlacements.length > 0) {
@@ -435,7 +439,7 @@ async function runScenario(scenarioId) {
       }
     } else {
       warnings.push(...(solved.diagnostics || []).map((item) => warning(item.type || 'CP_SAT_FAILED', item.message || 'CP-SAT plan üretemedi.', 'hard', item)));
-      return markScenarioFailed(scenarioId, exams, invigilators, warnings, optimizerStatus);
+      return markScenarioFailed(scenarioId, activeExams, invigilators, warnings, optimizerStatus);
     }
   } else {
     const placements = [];
@@ -482,7 +486,7 @@ async function runScenario(scenarioId) {
   }
 
   // Coverage validation: every enrolled student must have exactly one seat assignment
-  warnings.push(...validateExamCoverage(exams, allPersistedAssignments));
+  warnings.push(...validateExamCoverage(activeExams, allPersistedAssignments));
 
   // Fix assignedCount on ExamRoomAssignment: recompute from actual SeatAssignment rows
   // (in-memory allPersistedAssignments already reflects DB reality)
@@ -503,7 +507,7 @@ async function runScenario(scenarioId) {
   const invigilatorLoad = invigilatorLoadFromPlacements(improvedPlacements);
   const explanations = buildExplanations(improvedPlacements);
   const metrics = buildScenarioMetrics({
-    exams,
+    exams: activeExams,
     placements: improvedPlacements,
     roomStats,
     invigilatorLoad,

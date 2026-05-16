@@ -36,7 +36,8 @@ function buildScenarioMetrics({ exams, placements, roomStats, invigilatorLoad, i
   const totalAssigned = roomStats.reduce((sum, item) => sum + item.assignedCount, 0);
   const totalCapacity = roomStats.reduce((sum, item) => sum + item.capacity, 0);
   const totalEffectiveCapacity = roomStats.reduce((sum, item) => sum + (item.effectiveCapacity ?? item.capacity), 0);
-  const totalUnusedCapacity = roomStats.reduce((sum, item) => sum + Math.max(0, (item.effectiveCapacity ?? item.capacity) - item.assignedCount), 0);
+  const totalUnusedCapacity = roomStats.reduce((sum, item) => sum + Math.max(0, item.capacity - item.assignedCount), 0);
+  const totalEffectiveUnusedCapacity = roomStats.reduce((sum, item) => sum + Math.max(0, (item.effectiveCapacity ?? item.capacity) - item.assignedCount), 0);
   const usedDayCount = new Set(placements.map((item) => new Date(item.date).toISOString().slice(0, 10))).size;
   const usedRoomCount = new Set(roomStats.map((item) => item.roomId)).size;
   const mixedSavings = estimateSavings(placements.map((item) => item.group));
@@ -91,8 +92,14 @@ function buildScenarioMetrics({ exams, placements, roomStats, invigilatorLoad, i
     scheduledDays: usedDayCount,
     usedRoomCount,
     usedRoomSlotCount: roomStats.length,
-    averageRoomUtilization: totalEffectiveCapacity > 0 ? Number((totalAssigned / totalEffectiveCapacity).toFixed(3)) : 0,
+    averageRoomUtilization: totalCapacity > 0 ? Number((totalAssigned / totalCapacity).toFixed(3)) : 0,
+    averagePhysicalRoomUtilization: totalCapacity > 0 ? Number((totalAssigned / totalCapacity).toFixed(3)) : 0,
+    averageEffectiveExamUtilization: totalEffectiveCapacity > 0 ? Number((totalAssigned / totalEffectiveCapacity).toFixed(3)) : 0,
+    totalPhysicalCapacity: totalCapacity,
+    totalEffectiveCapacity,
     totalUnusedCapacity,
+    totalPhysicalUnusedCapacity: totalUnusedCapacity,
+    totalEffectiveUnusedCapacity,
     capacityWaste: totalUnusedCapacity,
     studentConflictCount,
     roomConflictCount,

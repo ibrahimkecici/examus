@@ -3,7 +3,7 @@ const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 const prisma = require('../config/prisma');
 const { sameDate } = require('../utils/time');
-const { activeSeatCapacity } = require('./planning/roomAllocator');
+const { activeSeatCapacity, getEffectiveCapacity } = require('./planning/roomAllocator');
 const { groupSpecialNeedSummary, specialNeedNote } = require('./planning/specialNeeds');
 
 const FONT_PATH = path.join(__dirname, '..', 'assets', 'fonts', 'NotoSans-Regular.ttf');
@@ -81,6 +81,19 @@ function formatSpecialNeeds(students) {
   return groupSpecialNeedSummary(students) || '-';
 }
 
+function physicalRoomCapacity(classroom) {
+  return Number(classroom?.capacity || 0) || activeSeatCapacity(classroom);
+}
+
+function slotEffectiveExamCapacity(slot, assignments) {
+  if (assignments.length === 1) {
+    const exam = assignments[0].exam;
+    const bookletTypes = Array.isArray(exam.bookletTypes) && exam.bookletTypes.length > 0 ? exam.bookletTypes : exam.course?.bookletTypes;
+    return getEffectiveCapacity(slot.classroom, true, Array.isArray(bookletTypes) ? bookletTypes.length > 1 : false);
+  }
+  return activeSeatCapacity(slot.classroom);
+}
+
 async function buildCalendarWorkbook(scenarioId) {
   const scenario = await getScenarioReportData(scenarioId);
   const workbook = new ExcelJS.Workbook();
@@ -94,9 +107,11 @@ async function buildCalendarWorkbook(scenarioId) {
     { header: 'Ders Kodları', key: 'codes', width: 22 },
     { header: 'Ders Adları', key: 'names', width: 36 },
     { header: 'Süre', key: 'duration', width: 10 },
-    { header: 'Kapasite', key: 'capacity', width: 12 },
+    { header: 'Sınav Kapasitesi', key: 'examCapacity', width: 16 },
+    { header: 'Fiziksel Kapasite', key: 'physicalCapacity', width: 18 },
     { header: 'Atanan Öğrenci Sayısı', key: 'count', width: 22 },
-    { header: 'Doluluk Oranı', key: 'utilization', width: 16 },
+    { header: 'Sınav Kapasitesi Doluluğu', key: 'examUtilization', width: 24 },
+    { header: 'Fiziksel Salon Doluluğu', key: 'physicalUtilization', width: 24 },
     { header: 'Gözetmenler', key: 'invigilators', width: 36 },
     { header: 'Özel İhtiyaç Özeti', key: 'specialNeeds', width: 42 },
     { header: 'Uyarılar', key: 'warnings', width: 54 },
@@ -105,7 +120,8 @@ async function buildCalendarWorkbook(scenarioId) {
     const assignments = slotAssignments(scenario, slot);
     const seats = slotSeatAssignments(scenario, slot);
     const invigilators = slotInvigilators(scenario, slot);
-    const capacity = activeSeatCapacity(slot.classroom);
+    const examCapacity = slotEffectiveExamCapacity(slot, assignments);
+    const physicalCapacity = physicalRoomCapacity(slot.classroom);
     calendar.addRow({
       date: slot.date.toISOString().slice(0, 10),
       time: `${slot.startTime}-${slot.endTime}`,
@@ -114,9 +130,11 @@ async function buildCalendarWorkbook(scenarioId) {
       codes: assignments.map((assignment) => assignment.exam.course.code).join(', '),
       names: assignments.map((assignment) => assignment.exam.course.name).join(', '),
       duration: assignments[0]?.exam.durationMinutes || '',
-      capacity,
+      examCapacity,
+      physicalCapacity,
       count: seats.length,
-      utilization: capacity > 0 ? Number((seats.length / capacity).toFixed(2)) : 0,
+      examUtilization: examCapacity > 0 ? Number((seats.length / examCapacity).toFixed(2)) : 0,
+      physicalUtilization: physicalCapacity > 0 ? Number((seats.length / physicalCapacity).toFixed(2)) : 0,
       invigilators: invigilators.map((assignment) => invigilatorName(assignment.invigilator)).join(', '),
       specialNeeds: formatSpecialNeeds(seats.map((assignment) => assignment.student)),
       warnings: warningTextForSlot(scenario, slot),
@@ -220,9 +238,10 @@ async function streamPdf(scenarioId, res) {
   for (const slot of scenario.roomSlots) {
     const assignments = slotAssignments(scenario, slot);
     const seats = slotSeatAssignments(scenario, slot);
-    const capacity = activeSeatCapacity(slot.classroom);
+    const examCapacity = slotEffectiveExamCapacity(slot, assignments);
+    const physicalCapacity = physicalRoomCapacity(slot.classroom);
     font.fontSize(12).text(`${slot.classroom.code} ${slot.classroom.name} ${slot.mixed ? '(Karma)' : ''}`);
-    font.fontSize(10).text(`${slot.date.toISOString().slice(0, 10)} ${slot.startTime}-${slot.endTime} | ${assignments.map((item) => item.exam.course.code).join(', ')} | ${seats.length}/${capacity} öğrenci`);
+    font.fontSize(10).text(`${slot.date.toISOString().slice(0, 10)} ${slot.startTime}-${slot.endTime} | ${assignments.map((item) => item.exam.course.code).join(', ')} | sınav kapasitesi ${seats.length}/${examCapacity}, fiziksel doluluk ${seats.length}/${physicalCapacity}`);
     const warnings = warningTextForSlot(scenario, slot);
     if (warnings) font.fontSize(9).text(`Uyarılar: ${warnings}`);
     doc.moveDown(0.5);

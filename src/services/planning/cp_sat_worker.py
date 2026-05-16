@@ -109,17 +109,39 @@ def solve(payload):
 
     option_cost = []
     for option in options:
-        utilization = int(option.get("utilizationPercent", 0))
-        low_utilization_penalty = max(0, 70 - utilization) * 35
+        exam_utilization = int(option.get("utilizationPercent", 0))
+        physical_utilization = int(option.get("physicalUtilizationPercent", exam_utilization))
+        student_count = int(option.get("studentCount", 0))
+        effective_capacity = int(option.get("effectiveExamCapacity", option.get("capacity", 0)))
+        physical_capacity = int(option.get("physicalCapacity", effective_capacity))
+
+        low_exam_utilization_penalty = max(0, 82 - exam_utilization) * 120
+        low_physical_utilization_penalty = 0
+        if physical_utilization < 40:
+            low_physical_utilization_penalty += (40 - physical_utilization) * 2500
+        if physical_utilization < 30:
+            low_physical_utilization_penalty += (30 - physical_utilization) * 5000
+        if physical_utilization < 25:
+            low_physical_utilization_penalty += (25 - physical_utilization) * 12000
+
+        large_room_penalty = 0
+        if student_count > 0:
+            large_room_penalty += max(0, physical_capacity - student_count * 2) * 750
+            large_room_penalty += max(0, physical_capacity - student_count * 3) * 1300
+
         cost = (
-            int(option.get("roomWaste", 0)) * 90
-            + low_utilization_penalty
+            int(option.get("roomWaste", 0)) * 130
+            + int(option.get("physicalRoomWaste", 0)) * 260
+            + low_exam_utilization_penalty
+            + low_physical_utilization_penalty
+            + large_room_penalty
             + int(option.get("roomCount", 1)) * 220
             + int(option.get("roomScore", 0))
             + int(option.get("invigilatorScore", 0))
         )
         if option.get("mixed"):
-            cost -= 120
+            cost -= int(option.get("mixedRoomSavings", 0)) * 220
+            cost -= int(option.get("mixedInvigilatorSavings", 0)) * 180
         option_cost.append(cost * decision[option["id"]])
 
     pair_penalties = defaultdict(int)
@@ -162,10 +184,10 @@ def solve(payload):
     model.Minimize(
         max_date * 1_000_000
         + sum(day_used.values()) * 500_000
-        + max_slot * 100_000
         + sum(option_cost)
         + sum(student_load_cost)
-        + (max_load - min_load) * 1200
+        + (max_load - min_load) * 1700
+        + max_slot * 20_000
     )
 
     solver = cp_model.CpSolver()
