@@ -359,15 +359,20 @@ async function persistPlacement(scenarioId, placement) {
     });
   }
 
+  const missingCount = placement.group.students.length - allSeatAssignments.length;
+  const filteredStrategyWarnings = missingCount === 0 && placement.rooms.length > 1
+    ? strategyWarnings.filter((message) => !message.includes('kapasite yetersiz'))
+    : strategyWarnings;
+
   return {
     roomStats,
     seatResult: {
       assignments: allSeatAssignments,
-      strategyWarnings,
+      strategyWarnings: filteredStrategyWarnings,
       sameCourseAdjacentSeatCount: totalSameCourseAdjacentSeatCount,
       sameCourseSameBookletFrontBackAvoidableCount: totalSameCourseSameBookletFrontBackAvoidableCount,
       sameCourseSameBookletFrontBackUnavoidableCount: totalSameCourseSameBookletFrontBackUnavoidableCount,
-      missingCount: placement.group.students.length - allSeatAssignments.length,
+      missingCount,
     },
   };
 }

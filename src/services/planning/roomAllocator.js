@@ -148,7 +148,7 @@ function multiRoomCandidates(eligibleRooms, examGroups, strategyWeights, strateg
   return results;
 }
 
-function buildRoomCandidates(classrooms, examGroups, strategyWeights, strategy = 'efficient') {
+function buildRoomCandidates(classrooms, examGroups, strategyWeights, strategy = 'efficient', options = {}) {
   const needed = examGroups.reduce((sum, group) => sum + group.students.length, 0);
   const isSingleCourse = examGroups.length === 1;
   const multiBooklet = isSingleCourse && examHasMultipleBooklets(examGroups[0].exam);
@@ -160,9 +160,20 @@ function buildRoomCandidates(classrooms, examGroups, strategyWeights, strategy =
     .filter((c) => c.totalCapacity >= needed);
 
   if (singleCandidates.length > 0) {
-    return singleCandidates
-      .sort((a, b) => a.totalCapacity - b.totalCapacity || String(a.rooms[0].code).localeCompare(String(b.rooms[0].code), 'tr'))
+    const sortedSingles = singleCandidates
+      .sort((a, b) => a.totalCapacity - b.totalCapacity || a.physicalCapacity - b.physicalCapacity || String(a.rooms[0].code).localeCompare(String(b.rooms[0].code), 'tr'))
       .slice(0, 16);
+
+    if (!options.includeMultiRoomAlternatives || !isSingleCourse) return sortedSingles;
+
+    const bestSinglePhysicalCapacity = Math.min(...sortedSingles.map((candidate) => candidate.physicalCapacity));
+    const multiCandidates = multiRoomCandidates(eligible, examGroups, strategyWeights, strategy, needed, isSingleCourse, multiBooklet);
+    const sortedMulti = multiCandidates
+      .filter((candidate) => candidate.physicalCapacity < bestSinglePhysicalCapacity)
+      .sort((a, b) => a.physicalCapacity - b.physicalCapacity || a.totalCapacity - b.totalCapacity || a.score - b.score)
+      .slice(0, 4);
+
+    return [...sortedSingles, ...sortedMulti];
   }
 
   if (!isSingleCourse) return [];

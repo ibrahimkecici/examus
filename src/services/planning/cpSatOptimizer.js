@@ -147,7 +147,8 @@ function buildCpSatInput({ groups, period, dates, classrooms, invigilators, weig
     }
 
     const schedules = buildScheduleCandidates(group, period, dates).filter((schedule) => scheduleMatchesPinned(schedule, pinned));
-    const roomCandidates = buildRoomCandidates(classrooms, group.examGroups, weights, strategy).filter((candidate) => roomCandidateHonorsLockedSeats(group, candidate, lockedByExam));
+    const roomCandidates = buildRoomCandidates(classrooms, group.examGroups, weights, strategy, { includeMultiRoomAlternatives: true })
+      .filter((candidate) => roomCandidateHonorsLockedSeats(group, candidate, lockedByExam));
     const requiredInvigilators = requiredInvigilatorCount(group.students.length, config);
     const separateInvigilatorCount = group.examGroups.reduce((sum, examGroup) => sum + requiredInvigilatorCount(examGroup.students.length, config), 0);
 

@@ -99,6 +99,17 @@ test('CP-SAT input separates effective exam capacity from physical room capacity
   assert.equal(option.physicalRoomWaste, 12);
 });
 
+test('CP-SAT input includes multi-room alternatives even when one large room fits', () => {
+  const students = Array.from({ length: 32 }, (_, index) => ({ id: `S${index}` }));
+  const item = exam('E1', 'MAT101', students);
+  const rooms = [roomWithGrid('BZ05', 6, 6), roomWithGrid('BZ04', 5, 8), roomWithGrid('A102', 10, 10)];
+  const input = buildCpSatInput(baseInputArgs([makeSingleGroup(item)], rooms));
+  const roomSets = new Set(input.options.map((option) => option.roomIds.join('+')));
+
+  assert.ok(roomSets.has('A102'), 'single large room must remain available');
+  assert.ok([...roomSets].some((value) => value.includes('BZ05') && value.includes('BZ04')), 'two smaller rooms must be offered to CP-SAT');
+});
+
 test('CP-SAT input filters room options that would break locked classroom assignments', () => {
   const students = [{ id: 'S1' }, { id: 'S2' }];
   const item = exam('E1', 'MAT101', students);
