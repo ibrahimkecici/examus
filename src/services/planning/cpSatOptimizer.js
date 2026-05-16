@@ -249,6 +249,9 @@ function runCpSatWorker(input) {
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
     child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.stdin.on('error', (error) => {
+      if (error.code !== 'EPIPE') reject(error);
+    });
     child.on('error', (error) => {
       clearTimeout(timeout);
       reject(error);

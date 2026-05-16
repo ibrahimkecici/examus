@@ -10,7 +10,10 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",
-    "test": "node --test"
+    "test": "node --test",
+    "seed:realistic": "node scripts/generate-realistic-test-data.js",
+    "seed:realistic:reset": "node scripts/generate-realistic-test-data.js --reset",
+    "seed:realistic:run": "node scripts/generate-realistic-test-data.js --run"
   },
   "keywords": [],
   "author": "",

@@ -157,8 +157,25 @@ function improvePlacements({ placements, classrooms, invigilators, dates, period
   return improved;
 }
 
+function runHeuristicPlanner({ groups, classrooms, invigilators, dates, period, strategy, weights, config, warnings }) {
+  const placements = [];
+  for (const group of groups) {
+    const candidate = findBestPlacement({ group, classrooms, invigilators, placements, dates, period, strategy, weights, config });
+    if (!candidate) {
+      warnings.push(warning('UNPLACED', `${group.examGroups.map((item) => item.course.code).join(', ')} için geçerli kaynak kombinasyonu bulunamadı.`, 'hard'));
+      continue;
+    }
+    placements.push(toPlacement(candidate));
+  }
+  return improvePlacements({ placements, classrooms, invigilators, dates, period, strategy, weights, config });
+}
+
 function shouldUseCpSat(strategy) {
   return strategy !== 'heuristic' && strategy !== 'legacy_heuristic';
+}
+
+function isCpSatTimeoutError(error) {
+  return String(error?.message || '').includes('içinde tamamlanmadı');
 }
 
 function scenarioInclude() {
@@ -427,36 +444,39 @@ async function runScenario(scenarioId) {
     try {
       solved = await solveWithCpSat({ groups, period, dates, classrooms, invigilators, weights, config, strategy, lockedAssignments });
     } catch (error) {
-      const failureWarnings = [
-        warning(
-          'CP_SAT_WORKER_ERROR',
-          `CP-SAT worker çalıştırılamadı: ${error.message}. OR-Tools kurulu değilse \`npm run python:setup\` çalıştırın; model süre limitine takılıyorsa \`CP_SAT_WORKER_TIMEOUT_MS\` değerini artırabilir veya geçici olarak heuristic stratejisini seçebilirsiniz.`,
-          'hard',
-        ),
-      ];
-      return markScenarioFailed(scenarioId, activeExams, invigilators, failureWarnings, 'ERROR');
-    }
-    optimizerStatus = solved.status;
-    if (solved.selectedPlacements.length > 0) {
-      improvedPlacements = solved.selectedPlacements;
-      if (solved.status === 'FEASIBLE') {
-        warnings.push(warning('CP_SAT_BEST_FEASIBLE', 'CP-SAT süre limiti içinde optimal kanıt üretmedi; bulunan en iyi geçerli plan kullanıldı.', 'soft'));
+      if (isCpSatTimeoutError(error)) {
+        warnings.push(warning(
+          'CP_SAT_TIMEOUT_HEURISTIC_FALLBACK',
+          `CP-SAT süre sınırına takıldı: ${error.message}. Senaryo boş bırakılmadı; heuristic fallback ile geçerli plan üretildi. Bu çıktı kesin optimum değildir.`,
+          'soft',
+        ));
+        optimizerStatus = 'TIMEOUT_HEURISTIC_FALLBACK';
+        improvedPlacements = runHeuristicPlanner({ groups, classrooms, invigilators, dates, period, strategy, weights, config, warnings });
+      } else {
+        const failureWarnings = [
+          warning(
+            'CP_SAT_WORKER_ERROR',
+            `CP-SAT worker çalıştırılamadı: ${error.message}. OR-Tools kurulu değilse \`npm run python:setup\` çalıştırın; model süre limitine takılıyorsa \`CP_SAT_WORKER_TIMEOUT_MS\` değerini artırabilir veya geçici olarak heuristic stratejisini seçebilirsiniz.`,
+            'hard',
+          ),
+        ];
+        return markScenarioFailed(scenarioId, activeExams, invigilators, failureWarnings, 'ERROR');
       }
-    } else {
-      warnings.push(...(solved.diagnostics || []).map((item) => warning(item.type || 'CP_SAT_FAILED', item.message || 'CP-SAT plan üretemedi.', 'hard', item)));
-      return markScenarioFailed(scenarioId, activeExams, invigilators, warnings, optimizerStatus);
+    }
+    if (solved) {
+      optimizerStatus = solved.status;
+      if (solved.selectedPlacements.length > 0) {
+        improvedPlacements = solved.selectedPlacements;
+        if (solved.status === 'FEASIBLE') {
+          warnings.push(warning('CP_SAT_BEST_FEASIBLE', 'CP-SAT süre limiti içinde optimal kanıt üretmedi; bulunan en iyi geçerli plan kullanıldı.', 'soft'));
+        }
+      } else {
+        warnings.push(...(solved.diagnostics || []).map((item) => warning(item.type || 'CP_SAT_FAILED', item.message || 'CP-SAT plan üretemedi.', 'hard', item)));
+        return markScenarioFailed(scenarioId, activeExams, invigilators, warnings, optimizerStatus);
+      }
     }
   } else {
-    const placements = [];
-    for (const group of groups) {
-      const candidate = findBestPlacement({ group, classrooms, invigilators, placements, dates, period, strategy, weights, config });
-      if (!candidate) {
-        warnings.push(warning('UNPLACED', `${group.examGroups.map((item) => item.course.code).join(', ')} için geçerli kaynak kombinasyonu bulunamadı.`, 'hard'));
-        continue;
-      }
-      placements.push(toPlacement(candidate));
-    }
-    improvedPlacements = improvePlacements({ placements, classrooms, invigilators, dates, period, strategy, weights, config });
+    improvedPlacements = runHeuristicPlanner({ groups, classrooms, invigilators, dates, period, strategy, weights, config, warnings });
   }
   const conflictWarnings = validatePlacementConflicts(improvedPlacements);
   warnings.push(...conflictWarnings);
@@ -527,7 +547,16 @@ async function runScenario(scenarioId) {
 
   return prisma.planningScenario.update({
     where: { id: scenarioId },
-    data: { status: warnings.some((item) => item.severity === 'hard') ? 'FAILED' : 'COMPLETED', metrics: { ...metrics, optimizer: shouldUseCpSat(scenario.strategy) ? 'cp_sat' : 'heuristic', optimizerStatus }, warnings, score: metrics.score },
+    data: {
+      status: warnings.some((item) => item.severity === 'hard') ? 'FAILED' : 'COMPLETED',
+      metrics: {
+        ...metrics,
+        optimizer: optimizerStatus === 'TIMEOUT_HEURISTIC_FALLBACK' ? 'heuristic_fallback' : shouldUseCpSat(scenario.strategy) ? 'cp_sat' : 'heuristic',
+        optimizerStatus,
+      },
+      warnings,
+      score: metrics.score,
+    },
     include: scenarioInclude(),
   });
 }
