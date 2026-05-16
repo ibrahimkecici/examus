@@ -281,8 +281,8 @@ test('column spacing validator detects adjacent column violation in single-cours
   ];
   const warnings = validateSingleCourseColumnSpacing(assignments);
   assert.equal(warnings.length, 1);
-  assert.equal(warnings[0].type, 'COLUMN_SPACING_VIOLATION');
-  assert.equal(warnings[0].severity, 'hard');
+  assert.equal(warnings[0].type, 'COLUMN_SPACING_NOTICE');
+  assert.equal(warnings[0].severity, 'info');
 });
 
 test('column spacing validator passes clean alternating pattern', () => {
@@ -394,7 +394,7 @@ test('column spacing validation fires per-room even when multiple exams exist in
   ];
   const warnings = validateSingleCourseColumnSpacing(assignments);
   assert.equal(warnings.length, 1, 'R1 violation must be detected even though a second exam exists in a different room');
-  assert.equal(warnings[0].type, 'COLUMN_SPACING_VIOLATION');
+  assert.equal(warnings[0].type, 'COLUMN_SPACING_NOTICE');
 });
 
 test('multi-course room selection rejects room when largest course overflows its column allocation', () => {

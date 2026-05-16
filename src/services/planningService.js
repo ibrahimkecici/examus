@@ -187,16 +187,16 @@ function seatWarnings(placement, seatResult) {
     warnings.push(warning('SEATING_STRATEGY', msg, 'soft'));
   }
   if (seatResult.sameCourseAdjacentSeatCount > 0) {
-    warnings.push(warning('SAME_COURSE_ADJACENT_SEAT', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} salonunda aynı ders öğrencileri yan yana kaldı.`, 'soft'));
+    warnings.push(warning('SAME_COURSE_ADJACENT_SEAT', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} için aynı ders ve aynı kitapçık yan yana görünüyor; plan kontrol edilmeli.`, 'soft'));
   }
   if (seatResult.sameCourseSameBookletFrontBackAvoidableCount > 0) {
-    warnings.push(warning('SAME_COURSE_FRONT_BACK_AVOIDABLE', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} salonunda aynı kitapçıklı öğrenciler önde-arkada kaldı (kitapçık ataması iyileştirilebilir).`, 'soft'));
+    warnings.push(warning('SAME_COURSE_FRONT_BACK_AVOIDABLE', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} için aynı kitapçıklı bazı öğrenciler ön-arka oturuyor; kitapçık dağılımı yeniden değerlendirilebilir.`, 'soft'));
   }
   if (seatResult.sameCourseSameBookletFrontBackUnavoidableCount > 0) {
-    warnings.push(warning('SAME_COURSE_FRONT_BACK_UNAVOIDABLE', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} salonunda tek kitapçıklı sınav olduğundan aynı ders öğrencileri ön-arka bitişik.`, 'soft'));
+    warnings.push(warning('SAME_COURSE_FRONT_BACK_UNAVOIDABLE', `${placement.group.examGroups.map((group) => group.course.code).join(', ')} için tek kitapçık kullanıldığı için bazı ön-arka yerleşimler kaçınılmaz olabilir.`, 'info'));
   }
   if (seatResult.missingCount > 0) {
-    warnings.push(warning('SEAT_CAPACITY_OVERFLOW', `${seatResult.missingCount} öğrenci için yeterli koltuk bulunamadı.`, 'hard'));
+    warnings.push(warning('SEAT_CAPACITY_OVERFLOW', `${seatResult.missingCount} öğrenci yerleşemedi; uygun derslik kapasitesi bulunamadı.`, 'hard'));
   }
   return warnings;
 }

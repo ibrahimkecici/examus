@@ -80,7 +80,7 @@ function validateSingleCourseColumnSpacing(seatAssignments) {
 
     for (let i = 1; i < sortedCols.length; i++) {
       if (sortedCols[i] - sortedCols[i - 1] === 1) {
-        warnings.push(warning('COLUMN_SPACING_VIOLATION', `${courseCode}: ${sortedCols[i - 1]} ve ${sortedCols[i]} nolu sütunlar bitişik kullanılmış. Tek kitapçıklı sınavlarda alternatif sütun kuralı ihlal edildi.`, 'hard'));
+        warnings.push(warning('COLUMN_SPACING_NOTICE', `${courseCode}: Tek kitapçıklı sınavda ${sortedCols[i - 1]} ve ${sortedCols[i]} nolu sütunlar birlikte kullanılmış; mümkünse alternatif sütun düzeni tercih edilir.`, 'info'));
         break;
       }
     }
@@ -91,11 +91,27 @@ function validateSingleCourseColumnSpacing(seatAssignments) {
 
 function validateBooklets(seatAssignments) {
   const warnings = [];
+  const allowedTypesByExam = new Map();
+  for (const a of seatAssignments) {
+    const key = a.exam?.id || a.examId;
+    if (!key || allowedTypesByExam.has(key)) continue;
+    const examTypes = Array.isArray(a.exam?.bookletTypes) && a.exam.bookletTypes.length > 0
+      ? a.exam.bookletTypes
+      : Array.isArray(a.exam?.course?.bookletTypes) && a.exam.course.bookletTypes.length > 0
+        ? a.exam.course.bookletTypes
+        : ['A'];
+    allowedTypesByExam.set(key, new Set(examTypes));
+  }
 
   // Missing booklet
   for (const a of seatAssignments) {
     if (!a.bookletType) {
-      warnings.push(warning('MISSING_BOOKLET', `${a.student.fullName} için kitapçık türü atanmamış.`, 'soft', { examId: a.exam?.id }));
+      warnings.push(warning('MISSING_BOOKLET', `${a.student.fullName} için kitapçık türü atanmadı.`, 'hard', { examId: a.exam?.id || a.examId }));
+      continue;
+    }
+    const allowedTypes = allowedTypesByExam.get(a.exam?.id || a.examId);
+    if (allowedTypes && !allowedTypes.has(a.bookletType)) {
+      warnings.push(warning('INVALID_BOOKLET', `${a.student.fullName} için geçersiz kitapçık türü (${a.bookletType}) atanmış.`, 'hard', { examId: a.exam?.id || a.examId, bookletType: a.bookletType }));
     }
   }
 
@@ -118,7 +134,7 @@ function validateBooklets(seatAssignments) {
       const examTypes = bookletTypesByExam.get(a.exam?.id || a.examId);
       if (!examTypes || examTypes.size < 2) continue;
       if (a.seat.row === b.seat.row && Math.abs(a.seat.column - b.seat.column) === 1) {
-        warnings.push(warning('BOOKLET_ADJACENT_CONFLICT', `${a.bookletType} kitapçığı: ${a.student.fullName} (${a.seat.label}) ile ${b.student.fullName} (${b.seat.label}) aynı kitapçıkla yan yana oturuyor.`, 'soft', { examId: a.exam?.id }));
+        warnings.push(warning('BOOKLET_ADJACENT_CONFLICT', `${a.bookletType} kitapçığı: ${a.student.fullName} (${a.seat.label}) ile ${b.student.fullName} (${b.seat.label}) yan yana oturuyor.`, 'hard', { examId: a.exam?.id || a.examId }));
       }
     }
   }

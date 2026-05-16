@@ -221,9 +221,10 @@ function OverviewTab({ scenario }: { scenario: Scenario }) {
       {scenario.warnings && scenario.warnings.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
           <h3 className="mb-2 font-semibold text-amber-700 dark:text-amber-400">Uyarilar ({scenario.warnings.length})</h3>
+          <p className="mb-2 text-sm text-amber-800 dark:text-amber-300">Tek kitapçıklı sınavlarda bazı ön-arka yerleşimler kaçınılmaz olabilir.</p>
           <ul className="space-y-1">
             {scenario.warnings.map((w, i) => (
-              <li key={i} className={`text-sm ${w.severity === 'hard' ? 'text-red-700 dark:text-red-400' : 'text-amber-800 dark:text-amber-300'}`}>
+              <li key={i} className={`text-sm ${w.severity === 'hard' ? 'text-red-700 dark:text-red-400' : w.severity === 'info' ? 'text-slate-600 dark:text-slate-300' : 'text-amber-800 dark:text-amber-300'}`}>
                 <span className="font-mono text-xs opacity-60">[{(w as Warning & { type?: string }).type ?? w.code}]</span> {w.message}
               </li>
             ))}
