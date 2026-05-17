@@ -254,13 +254,14 @@ async function importInvigilators(file, req) {
     }
     const departmentName = value(row, ['department', 'bolum', 'Bölüm']) || null;
     const department = departmentName || req?.user?.role === 'DEPARTMENT_MANAGER' ? await resolveDepartment(prisma, departmentName, req) : null;
-    await prisma.invigilator.upsert({
+    const email = value(row, ['email', 'Email']) || null;
+    const invigilator = await prisma.invigilator.upsert({
       where: { staffNo },
       update: {
         firstName,
         lastName,
         title: value(row, ['title', 'unvan', 'Unvan']) || null,
-        email: value(row, ['email', 'Email']) || null,
+        email,
         department: department?.name || departmentName,
         departmentId: department?.id || null,
         maxAssignments: numberValue(row, ['maxAssignments', 'maksGorev', 'Maks Görev'], 4),
@@ -272,7 +273,7 @@ async function importInvigilators(file, req) {
         firstName,
         lastName,
         title: value(row, ['title', 'unvan', 'Unvan']) || null,
-        email: value(row, ['email', 'Email']) || null,
+        email,
         department: department?.name || departmentName,
         departmentId: department?.id || null,
         maxAssignments: numberValue(row, ['maxAssignments', 'maksGorev', 'Maks Görev'], 4),
@@ -280,6 +281,28 @@ async function importInvigilators(file, req) {
         constraints: jsonValue(row, ['constraints', 'kisitlar', 'Kısıtlar']),
       },
     });
+    if (!invigilator.userId) {
+      const user = await prisma.user.upsert({
+        where: { email: email || `${staffNo}@invigilators.examus.local` },
+        update: {
+          name: `${firstName} ${lastName}`.trim(),
+          role: 'INVIGILATOR',
+          department: department?.name || departmentName,
+          departmentId: department?.id || null,
+          mustChangePassword: true,
+        },
+        create: {
+          name: `${firstName} ${lastName}`.trim(),
+          email: email || `${staffNo}@invigilators.examus.local`,
+          role: 'INVIGILATOR',
+          department: department?.name || departmentName,
+          departmentId: department?.id || null,
+          mustChangePassword: true,
+          passwordHash: await bcrypt.hash('12345678', 10),
+        },
+      });
+      await prisma.invigilator.update({ where: { id: invigilator.id }, data: { userId: user.id } });
+    }
     successRows += 1;
   }
 

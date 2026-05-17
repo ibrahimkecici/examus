@@ -29,7 +29,7 @@ Bu doküman Examus içinde kullanılan rol bazlı erişim kontrolünü açıklar
 | Senaryo oluşturma / çalıştırma / recheck / onay | Tam | Yok | Yok | Yok | Yok |
 | Manuel sınav zamanı düzenleme | Tam | Kendi bölümü | Kendi dersi | Yok | Yok |
 | Manuel koltuk düzenleme | Tam | Kendi bölümü | Yok | Yok | Yok |
-| PDF / Excel rapor export | Tam | Açık | Yok | Yok | Yok |
+| PDF / Excel rapor export | Tam | Kendi bölümü | Kendi dersleri | Kendi görevli olduğu sınavlar | Kendi sınav/koltuk bilgisi |
 | AI önerisi üretme | Tam | Açık | Yok | Yok | Yok |
 
 ## Bölüm Kapsamı
@@ -80,6 +80,7 @@ Import sırasında `department` kolonu `Department` kaydıyla eşleştirilir.
 - Admin için department yoksa oluşturulabilir.
 - Bölüm koordinatörü için kayıtlar kendi `departmentId` kapsamına bağlanır.
 - Öğrenci importunda bağlı kullanıcı hesabı yoksa otomatik öğrenci kullanıcısı oluşturulur.
+- Gözetmen importunda bağlı kullanıcı hesabı yoksa otomatik gözetmen kullanıcısı oluşturulur.
 
 ## Öğrenci Hesapları
 
@@ -91,6 +92,16 @@ Import sırasında `department` kolonu `Department` kaydıyla eşleştirilir.
 - Öğrenci ilk girişte yeni şifre belirlemeden sistemi kullanamaz.
 
 Backend, `mustChangePassword=true` olan kullanıcıların `/api/auth/me` ve `/api/auth/complete-password-setup` dışındaki API erişimini engeller.
+
+## Gözetmen Hesapları
+
+Gözetmen hesapları import sırasında otomatik oluşturulur.
+
+- Kullanıcı adı: `Invigilator.staffNo`
+- E-posta varsa kullanıcı hesabında gerçek e-posta kullanılır; yoksa sistem içi `staffNo@invigilators.examus.local` adresi üretilir.
+- İlk şifre: `12345678`
+- `mustChangePassword=true` ile oluşturulur.
+- Gözetmen ilk girişte yeni şifre belirlemeden sistemi kullanamaz.
 
 ## Frontend Davranışı
 
@@ -116,7 +127,9 @@ Başlıca uygulama noktaları:
 
 ## Bilinen Sınırlar
 
-- Rapor export endpointleri şu an `ADMIN` ve `DEPARTMENT_MANAGER` rollerine açıktır.
-- Instructor, invigilator ve student için ayrı kişisel rapor endpointleri henüz ayrıştırılmamıştır.
+- Rapor export endpointleri tüm rollere açıktır, ancak her rol kendi kapsamına filtrelenmiş çıktı alır.
+- Ders sorumlusu raporları yalnızca kendi derslerinin sınavlarını içerir.
+- Gözetmen raporları yalnızca gözetmenin görevli olduğu sınavlarla filtrelenir.
+- Öğrenci raporları yalnızca öğrencinin kendi sınavlarını ve kendi koltuk bilgisini içerir.
 - Eski `department` string alanları migration uyumluluğu için tutulur; sonraki temizlik fazında kaldırılabilir.
 - Planlama senaryosu listeleme/görüntüleme endpointleri bölüm kapsamına göre ayrıca daraltılmaya adaydır; çalıştırma ve onaylama zaten sadece admindedir.

@@ -4,7 +4,7 @@ const { requireRole } = require('../middleware/auth');
 const { buildCalendarWorkbook, buildScenarioWorkbook, streamPdf, streamScenarioExamPdf, streamScenarioPdf } = require('../services/reportService');
 
 const router = express.Router();
-router.use(requireRole('ADMIN', 'DEPARTMENT_MANAGER'));
+router.use(requireRole('ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'));
 
 router.get(
   '/scenarios/:id/calendar.xlsx',

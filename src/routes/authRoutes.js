@@ -16,6 +16,10 @@ router.post(
       const student = await prisma.student.findUnique({ where: { studentNo: login }, include: { user: { include: { departmentRef: true } } } });
       user = student?.user || null;
     }
+    if (!user) {
+      const invigilator = await prisma.invigilator.findUnique({ where: { staffNo: login }, include: { user: { include: { departmentRef: true } } } });
+      user = invigilator?.user || null;
+    }
     if (!user || !(await bcrypt.compare(password || '', user.passwordHash))) {
       return res.status(401).json({ success: false, message: 'E-posta veya şifre hatalı.' });
     }

@@ -55,9 +55,10 @@ export function canAccessPath(user: CurrentUser | null, pathname: string) {
   if (pathname.startsWith('/bolumler')) return false;
   if (pathname.startsWith('/veri-yukleme')) return user.role === 'DEPARTMENT_MANAGER';
   if (pathname.startsWith('/planlama')) return ['DEPARTMENT_MANAGER'].includes(user.role);
-  if (pathname.startsWith('/raporlar')) return ['DEPARTMENT_MANAGER'].includes(user.role);
+  if (pathname.startsWith('/raporlar')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'].includes(user.role);
   if (pathname.startsWith('/ogrenciler')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'].includes(user.role);
-  if (pathname.startsWith('/dersler') || pathname.startsWith('/sinavlar')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'].includes(user.role);
+  if (pathname.startsWith('/dersler')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'].includes(user.role);
+  if (pathname.startsWith('/sinavlar')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT', 'INVIGILATOR'].includes(user.role);
   if (pathname.startsWith('/gozetmenler/yeni')) return user.role === 'DEPARTMENT_MANAGER';
   if (/^\/gozetmenler\/[^/]+/.test(pathname)) return ['DEPARTMENT_MANAGER', 'INVIGILATOR'].includes(user.role);
   if (pathname.startsWith('/gozetmenler')) return ['DEPARTMENT_MANAGER', 'INVIGILATOR'].includes(user.role);

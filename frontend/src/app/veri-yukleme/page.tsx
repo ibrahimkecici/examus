@@ -51,6 +51,7 @@ const SCHEMAS: Record<string, { label: string; columns: { name: string; required
       { name: 'department', note: 'Department kaydıyla eşleşir; koordinatörde kendi bölümü kullanılır' },
       { name: 'email' },
       { name: 'maxAssignments', note: 'varsayılan: 4' },
+      { name: 'account', note: 'otomatik oluşur: kullanıcı adı sicil no, ilk şifre 12345678' },
     ],
   },
 };

@@ -7,6 +7,7 @@ import DataTable from '@/components/DataTable';
 import StatusPill from '@/components/StatusPill';
 import { apiFetch, formatDate, getApiBaseUrl, getToken } from '@/lib/api';
 import { CurrentUser, getStoredUser } from '@/lib/auth';
+import { getRoleReportExports } from '@/lib/reportExports';
 
 type Course = { code: string; name: string };
 type Exam = { id: string; type: string; durationMinutes: number; course: Course };
@@ -156,7 +157,7 @@ export default function ScenarioDetailPage() {
         </div>
       ) : null}
 
-      <ScenarioExportPanel scenario={scenario} />
+      <ScenarioExportPanel scenario={scenario} user={user} />
 
       <nav className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
         {TABS.map((tab) => (
@@ -193,30 +194,18 @@ function reportUrl(scenarioId: string, path: string) {
   return `${getApiBaseUrl()}/reports/scenarios/${scenarioId}/${path}?token=${encodeURIComponent(token || '')}`;
 }
 
-function ScenarioExportPanel({ scenario }: { scenario: Scenario }) {
+function ScenarioExportPanel({ scenario, user }: { scenario: Scenario; user: CurrentUser | null }) {
   const examOptions = getScenarioExamOptions(scenario);
-  const pdfExports = [
-    { label: 'Kapsamlı Operasyon PDF', description: 'Özet, takvim, salon kapı listeleri, oturma planı, gözetmenler ve uyarılar.', path: 'full.pdf' },
-    { label: 'Takvim PDF', description: 'Tarih, saat, salon, ders, kapasite ve gözetmen özeti.', path: 'calendar.pdf' },
-    { label: 'Salon PDF', description: 'Salon bazlı kapı listeleri ve koltuk gridleri.', path: 'classrooms.pdf' },
-    { label: 'Gözetmen PDF', description: 'Gözetmen görevleri, günlük ve toplam yük sayaçları.', path: 'invigilators.pdf' },
-    { label: 'Öğrenci/Oturma PDF', description: 'Öğrenci no, ad, ders, kitapçık ve koltuk listesi.', path: 'students.pdf' },
-  ];
-  const excelExports = [
-    { label: 'Takvim Excel', path: 'calendar.xlsx' },
-    { label: 'Gözetmen Excel', path: 'invigilators.xlsx' },
-    { label: 'Öğrenci Excel', path: 'students.xlsx' },
-    { label: 'Derslik Excel', path: 'classrooms.xlsx' },
-  ];
+  const { pdfExports, excelExports, note, allowSingleExamExport } = getRoleReportExports(user);
 
   return (
     <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div>
         <h3 className="text-base font-semibold">Çıktılar</h3>
-        <p className="text-sm text-slate-500">PDF çıktıları sınav günü kullanımına göre ayrıldı. Tekil sınav çıktısını aşağıdaki listeden alabilirsiniz.</p>
+        <p className="text-sm text-slate-500">{note}</p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className={`grid gap-3 ${pdfExports.length === 1 ? '' : 'md:grid-cols-2 xl:grid-cols-3'}`}>
         {pdfExports.map((item) => (
           <a
             key={item.path}
@@ -229,6 +218,7 @@ function ScenarioExportPanel({ scenario }: { scenario: Scenario }) {
         ))}
       </div>
 
+      {excelExports.length > 0 ? (
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Excel çıktıları</p>
         <div className="flex flex-wrap gap-2">
@@ -239,8 +229,9 @@ function ScenarioExportPanel({ scenario }: { scenario: Scenario }) {
           ))}
         </div>
       </div>
+      ) : null}
 
-      {examOptions.length > 0 && (
+      {allowSingleExamExport && examOptions.length > 0 && (
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Tekil sınav PDF</p>
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">

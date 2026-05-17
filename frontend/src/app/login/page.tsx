@@ -54,7 +54,7 @@ export default function LoginPage() {
         <h2 className="text-2xl font-bold">Examus Giriş</h2>
         <p className="mt-1 text-sm text-slate-500">Rol bazlı yönetim paneline erişin.</p>
         {error ? <div className="mt-4 rounded-md bg-rose-50 p-3 text-sm text-rose-700">{error}</div> : null}
-        <label className="mt-6 block text-sm font-semibold">E-posta veya öğrenci no</label>
+        <label className="mt-6 block text-sm font-semibold">E-posta, öğrenci no veya sicil no</label>
         <input className="mt-2 w-full rounded-md border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-950" value={emailOrUsername} onChange={(event) => setEmailOrUsername(event.target.value)} />
         <label className="mt-4 block text-sm font-semibold">Şifre</label>
         <input type="password" className="mt-2 w-full rounded-md border border-slate-200 px-3 py-2 dark:border-slate-700 dark:bg-slate-950" value={password} onChange={(event) => setPassword(event.target.value)} />

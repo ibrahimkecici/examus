@@ -16,9 +16,9 @@ const navItems = [
   { href: '/bolumler', label: 'Bölümler', icon: '◇', roles: ['ADMIN'] },
   { href: '/gozetmenler', label: 'Gözetmenler', icon: '◇', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INVIGILATOR'] },
   { href: '/donemler', label: 'Dönemler', icon: '◫', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR'] },
-  { href: '/sinavlar', label: 'Sınavlar', icon: '◷', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'] },
+  { href: '/sinavlar', label: 'Sınavlar', icon: '◷', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT', 'INVIGILATOR'] },
   { href: '/planlama', label: 'Planlama', icon: '⌁', roles: ['ADMIN', 'DEPARTMENT_MANAGER'] },
-  { href: '/raporlar', label: 'Raporlar', icon: '≡', roles: ['ADMIN', 'DEPARTMENT_MANAGER'] },
+  { href: '/raporlar', label: 'Raporlar', icon: '≡', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'] },
   { href: '/kullanicilar', label: 'Kullanıcılar', icon: '⊙', roles: ['ADMIN'] },
 ];
 

@@ -24,7 +24,7 @@ router.post(
 
 router.get(
   '/scenarios',
-  requireRole('ADMIN', 'DEPARTMENT_MANAGER'),
+  requireRole('ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'),
   asyncHandler(async (req, res) => {
     const data = await prisma.planningScenario.findMany({ where: scenarioWhereForUser(req.user), include: { period: true }, orderBy: { createdAt: 'desc' } });
     res.json({ success: true, count: data.length, data });
@@ -33,7 +33,7 @@ router.get(
 
 router.get(
   '/scenarios/:id',
-  requireRole('ADMIN', 'DEPARTMENT_MANAGER'),
+  requireRole('ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'),
   asyncHandler(async (req, res) => {
     const data = await prisma.planningScenario.findUnique({
       where: { id: req.params.id },
