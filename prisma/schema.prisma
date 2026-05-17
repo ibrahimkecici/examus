@@ -45,19 +45,35 @@ enum ImportStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(DEPARTMENT_MANAGER)
-  department   String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  name               String
+  email              String   @unique
+  passwordHash       String
+  role               Role     @default(DEPARTMENT_MANAGER)
+  department         String?
+  departmentId       String?
+  mustChangePassword Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  instructorCourses Course[]      @relation("CourseInstructor")
-  studentProfile    Student?
+  departmentRef      Department?  @relation(fields: [departmentId], references: [id])
+  instructorCourses  Course[]     @relation("CourseInstructor")
+  studentProfile     Student?
   invigilatorProfile Invigilator?
-  auditLogs         AuditLog[]
+  auditLogs          AuditLog[]
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  students     Student[]
+  courses      Course[]
+  invigilators Invigilator[]
 }
 
 model Student {
@@ -65,37 +81,41 @@ model Student {
   studentNo    String   @unique
   fullName     String
   department   String
+  departmentId String?
   classLevel   Int?
   specialNeeds String?
   userId       String?  @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  user            User?            @relation(fields: [userId], references: [id])
+  departmentRef   Department?        @relation(fields: [departmentId], references: [id])
+  user            User?              @relation(fields: [userId], references: [id])
   enrollments     CourseEnrollment[]
   seatAssignments SeatAssignment[]
 }
 
 model Course {
-  id              String   @id @default(cuid())
-  code            String   @unique
-  name            String
-  instructorName  String?
-  instructorId    String?
-  department      String?
-  studentCount    Int      @default(0)
-  durationMinutes Int      @default(120)
-  examType        ExamType @default(FINAL)
-  specialRules    Json?
+  id               String   @id @default(cuid())
+  code             String   @unique
+  name             String
+  instructorName   String?
+  instructorId     String?
+  department       String?
+  departmentId     String?
+  studentCount     Int      @default(0)
+  durationMinutes  Int      @default(120)
+  examType         ExamType @default(FINAL)
+  specialRules     Json?
   requiredRoomType String?
   requiredFeatures Json?
-  bookletTypes    Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  bookletTypes     Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  instructor  User?              @relation("CourseInstructor", fields: [instructorId], references: [id])
-  enrollments CourseEnrollment[]
-  exams       Exam[]
+  departmentRef Department?        @relation(fields: [departmentId], references: [id])
+  instructor    User?              @relation("CourseInstructor", fields: [instructorId], references: [id])
+  enrollments   CourseEnrollment[]
+  exams         Exam[]
 }
 
 model CourseEnrollment {
@@ -143,7 +163,7 @@ model Seat {
   status      SeatStatus @default(AKTIF)
   capacity    Int        @default(1)
 
-  classroom       Classroom       @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  classroom       Classroom        @relation(fields: [classroomId], references: [id], onDelete: Cascade)
   seatAssignments SeatAssignment[]
 
   @@unique([classroomId, row, column])
@@ -158,6 +178,7 @@ model Invigilator {
   email          String?
   phone          String?
   department     String?
+  departmentId   String?
   maxAssignments Int      @default(4)
   priority       Int      @default(0)
   constraints    Json?
@@ -165,9 +186,10 @@ model Invigilator {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user        User?                    @relation(fields: [userId], references: [id])
-  availability Availability[]
-  assignments  InvigilatorAssignment[]
+  departmentRef Department?             @relation(fields: [departmentId], references: [id])
+  user          User?                   @relation(fields: [userId], references: [id])
+  availability  Availability[]
+  assignments   InvigilatorAssignment[]
 }
 
 model Availability {
@@ -196,47 +218,47 @@ model ExamPeriod {
 }
 
 model Exam {
-  id              String   @id @default(cuid())
-  courseId        String
-  periodId        String?
-  date            DateTime?
-  startTime       String?
-  endTime         String?
-  durationMinutes Int      @default(120)
-  type            ExamType @default(FINAL)
-  status          String   @default("DRAFT")
-  minRooms        Int?
-  maxRooms        Int?
-  pinned          Boolean  @default(false)
-  specialRules    Json?
+  id               String    @id @default(cuid())
+  courseId         String
+  periodId         String?
+  date             DateTime?
+  startTime        String?
+  endTime          String?
+  durationMinutes  Int       @default(120)
+  type             ExamType  @default(FINAL)
+  status           String    @default("DRAFT")
+  minRooms         Int?
+  maxRooms         Int?
+  pinned           Boolean   @default(false)
+  specialRules     Json?
   requiredRoomType String?
   requiredFeatures Json?
-  bookletTypes    Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  bookletTypes     Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  course          Course                  @relation(fields: [courseId], references: [id])
-  period          ExamPeriod?             @relation(fields: [periodId], references: [id])
-  roomAssignments ExamRoomAssignment[]
-  seatAssignments SeatAssignment[]
-  invigilators    InvigilatorAssignment[]
+  course            Course                  @relation(fields: [courseId], references: [id])
+  period            ExamPeriod?             @relation(fields: [periodId], references: [id])
+  roomAssignments   ExamRoomAssignment[]
+  seatAssignments   SeatAssignment[]
+  invigilators      InvigilatorAssignment[]
   scenarioSchedules ScenarioExamSchedule[]
 }
 
 model PlanningScenario {
-  id        String         @id @default(cuid())
-  periodId  String
-  name      String
-  strategy  String         @default("compact")
-  status    ScenarioStatus @default(DRAFT)
-  score     Float          @default(0)
-  metrics   Json?
-  warnings  Json?
+  id         String         @id @default(cuid())
+  periodId   String
+  name       String
+  strategy   String         @default("compact")
+  status     ScenarioStatus @default(DRAFT)
+  score      Float          @default(0)
+  metrics    Json?
+  warnings   Json?
   approvedAt DateTime?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
-  period       ExamPeriod           @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  period       ExamPeriod              @relation(fields: [periodId], references: [id], onDelete: Cascade)
   rooms        ExamRoomAssignment[]
   roomSlots    ExamRoomSlot[]
   seats        SeatAssignment[]
@@ -269,20 +291,20 @@ model ExamRoomSlot {
   endTime     String
   mixed       Boolean  @default(false)
 
-  scenario    PlanningScenario    @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
-  classroom   Classroom           @relation(fields: [classroomId], references: [id])
+  scenario    PlanningScenario     @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  classroom   Classroom            @relation(fields: [classroomId], references: [id])
   assignments ExamRoomAssignment[]
 
   @@unique([scenarioId, classroomId, date, startTime, endTime])
 }
 
 model ExamRoomAssignment {
-  id          String @id @default(cuid())
-  scenarioId  String
-  examId      String
-  classroomId String
-  roomSlotId  String?
-  assignedCount Int @default(0)
+  id            String  @id @default(cuid())
+  scenarioId    String
+  examId        String
+  classroomId   String
+  roomSlotId    String?
+  assignedCount Int     @default(0)
 
   scenario  PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
   exam      Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -293,7 +315,7 @@ model ExamRoomAssignment {
 }
 
 model SeatAssignment {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   scenarioId  String
   examId      String
   studentId   String
@@ -302,11 +324,11 @@ model SeatAssignment {
   locked      Boolean @default(false)
   bookletType String?
 
-  scenario PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
-  exam     Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
-  student  Student          @relation(fields: [studentId], references: [id])
+  scenario  PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  exam      Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student   Student          @relation(fields: [studentId], references: [id])
   classroom Classroom        @relation(fields: [classroomId], references: [id])
-  seat     Seat             @relation(fields: [seatId], references: [id])
+  seat      Seat             @relation(fields: [seatId], references: [id])
 
   @@unique([scenarioId, examId, studentId])
   @@unique([scenarioId, examId, seatId])
@@ -339,14 +361,14 @@ model ImportBatch {
 }
 
 model AiInsight {
-  id         String   @id @default(cuid())
-  scenarioId String
-  provider   String
-  model      String?
-  summary    String
-  risks      Json?
+  id          String   @id @default(cuid())
+  scenarioId  String
+  provider    String
+  model       String?
+  summary     String
+  risks       Json?
   suggestions Json?
-  createdAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
 
   scenario PlanningScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
 }

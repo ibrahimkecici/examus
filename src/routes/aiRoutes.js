@@ -1,11 +1,12 @@
 const express = require('express');
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
+const { requireRole } = require('../middleware/auth');
 const { generateInsight } = require('../services/aiService');
 
 const router = express.Router();
 
-router.post('/scenarios/:id/insights', asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await generateInsight(req.params.id) })));
+router.post('/scenarios/:id/insights', requireRole('ADMIN', 'DEPARTMENT_MANAGER'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await generateInsight(req.params.id) })));
 
 router.get(
   '/scenarios/:id/insights',

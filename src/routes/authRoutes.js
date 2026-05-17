@@ -9,13 +9,27 @@ const router = express.Router();
 router.post(
   '/login',
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
-    const user = await prisma.user.findUnique({ where: { email } });
+    const login = String(req.body.emailOrUsername || req.body.email || '').trim();
+    const { password } = req.body;
+    let user = await prisma.user.findUnique({ where: { email: login }, include: { departmentRef: true } });
+    if (!user) {
+      const student = await prisma.student.findUnique({ where: { studentNo: login }, include: { user: { include: { departmentRef: true } } } });
+      user = student?.user || null;
+    }
     if (!user || !(await bcrypt.compare(password || '', user.passwordHash))) {
       return res.status(401).json({ success: false, message: 'E-posta veya şifre hatalı.' });
     }
 
-    const safeUser = { id: user.id, name: user.name, email: user.email, role: user.role, department: user.department };
+    const safeUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      department: user.department,
+      departmentId: user.departmentId,
+      departmentRef: user.departmentRef,
+      mustChangePassword: user.mustChangePassword,
+    };
     res.json({ success: true, token: signToken(user), data: safeUser });
   }),
 );
@@ -38,6 +52,23 @@ router.post(
       data: { passwordHash: await bcrypt.hash(newPassword, 10) },
     });
     res.json({ success: true });
+  }),
+);
+
+router.post(
+  '/complete-password-setup',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { newPassword } = req.body;
+    if (!newPassword || String(newPassword).length < 8) {
+      return res.status(400).json({ success: false, message: 'Yeni şifre en az 8 karakter olmalıdır.' });
+    }
+    const data = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { passwordHash: await bcrypt.hash(newPassword, 10), mustChangePassword: false },
+      select: { id: true, name: true, email: true, role: true, department: true, departmentId: true, mustChangePassword: true, departmentRef: true },
+    });
+    res.json({ success: true, data });
   }),
 );
 

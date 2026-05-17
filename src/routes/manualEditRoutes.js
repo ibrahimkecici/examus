@@ -1,12 +1,22 @@
 const express = require('express');
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
+const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
 router.patch(
   '/exams/:id/schedule',
+  requireRole('ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR'),
   asyncHandler(async (req, res) => {
+    const existing = await prisma.exam.findUnique({ where: { id: req.params.id }, include: { course: true } });
+    if (!existing) return res.status(404).json({ success: false, message: 'Sınav bulunamadı.' });
+    if (req.user.role === 'DEPARTMENT_MANAGER' && existing.course.departmentId !== req.user.departmentId) {
+      return res.status(403).json({ success: false, message: 'Bu işlem için yetkiniz yok.' });
+    }
+    if (req.user.role === 'INSTRUCTOR' && existing.course.instructorId !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Bu işlem için yetkiniz yok.' });
+    }
     const data = await prisma.exam.update({
       where: { id: req.params.id },
       data: {
@@ -23,6 +33,7 @@ router.patch(
 
 router.patch(
   '/seat-assignments/:id',
+  requireRole('ADMIN', 'DEPARTMENT_MANAGER'),
   asyncHandler(async (req, res) => {
     const data = await prisma.seatAssignment.update({
       where: { id: req.params.id },

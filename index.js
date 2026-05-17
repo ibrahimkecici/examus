@@ -13,6 +13,7 @@ const { requireAuth } = require('./src/middleware/auth');
 const {
   classroomRoutes,
   courseRoutes,
+  departmentRoutes,
   examPeriodRoutes,
   examRoutes,
   invigilatorRoutes,
@@ -39,6 +40,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/classrooms', classroomRoutes);
+app.use('/api/departments', departmentRoutes);
 app.use('/api/invigilators', invigilatorRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/exam-periods', examPeriodRoutes);

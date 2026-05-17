@@ -4,13 +4,19 @@ import { useEffect, useState } from 'react';
 import DataTable from '@/components/DataTable';
 import Modal, { ConfirmDialog } from '@/components/Modal';
 import { apiFetch } from '@/lib/api';
+import { ROLE_LABELS, Role } from '@/lib/auth';
 
-type User = { id: string; email: string; firstName?: string; lastName?: string; role: string; createdAt: string };
+type User = { id: string; name: string; email: string; role: Role; department?: string | null; createdAt: string };
+type Department = { id: string; code: string; name: string };
+type Student = { id: string; studentNo: string; fullName: string; userId?: string | null };
 
-const emptyForm = { email: '', firstName: '', lastName: '', password: '', role: 'ADMIN' };
+const emptyForm = { email: '', name: '', password: '', role: 'DEPARTMENT_MANAGER' as Role, departmentId: '', studentId: '' };
+const roles = Object.entries(ROLE_LABELS) as Array<[Role, string]>;
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editTarget, setEditTarget] = useState<User | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
@@ -18,12 +24,24 @@ export default function UsersPage() {
   const [error, setError] = useState('');
 
   async function load() {
-    const response = await apiFetch<User[]>('/users');
+    const [response, departmentResponse, studentResponse] = await Promise.all([
+      apiFetch<User[]>('/users'),
+      apiFetch<Department[]>('/departments'),
+      apiFetch<Student[]>('/students'),
+    ]);
     setUsers(response.data);
+    setDepartments(departmentResponse.data);
+    setStudents(studentResponse.data);
   }
 
   useEffect(() => {
-    apiFetch<User[]>('/users').then((response) => setUsers(response.data)).catch(console.error);
+    Promise.all([apiFetch<User[]>('/users'), apiFetch<Department[]>('/departments'), apiFetch<Student[]>('/students')])
+      .then(([response, departmentResponse, studentResponse]) => {
+        setUsers(response.data);
+        setDepartments(departmentResponse.data);
+        setStudents(studentResponse.data);
+      })
+      .catch(console.error);
   }, []);
 
   async function create(e: React.FormEvent) {
@@ -44,7 +62,7 @@ export default function UsersPage() {
     if (!editTarget) return;
     setError('');
     try {
-      const body: Record<string, string> = { email: form.email, firstName: form.firstName, lastName: form.lastName, role: form.role };
+      const body: Record<string, string> = { email: form.email, name: form.name, role: form.role, departmentId: form.departmentId, studentId: form.studentId };
       if (form.password) body.password = form.password;
       await apiFetch(`/users/${editTarget.id}`, { method: 'PUT', body: JSON.stringify(body) });
       setEditTarget(null);
@@ -63,7 +81,7 @@ export default function UsersPage() {
 
   function startEdit(index: number) {
     const u = users[index];
-    setForm({ email: u.email, firstName: u.firstName || '', lastName: u.lastName || '', password: '', role: u.role });
+    setForm({ email: u.email, name: u.name || '', password: '', role: u.role, departmentId: '', studentId: '' });
     setEditTarget(u);
     setError('');
   }
@@ -89,8 +107,8 @@ export default function UsersPage() {
       </header>
 
       <DataTable
-        columns={['E-posta', 'Ad', 'Soyad', 'Rol']}
-        rows={users.map((u) => [u.email, u.firstName || '-', u.lastName || '-', u.role])}
+        columns={['E-posta', 'Ad Soyad', 'Rol', 'Bölüm']}
+        rows={users.map((u) => [u.email, u.name || '-', ROLE_LABELS[u.role] || u.role, u.department || '-'])}
         onEdit={startEdit}
         onDelete={(i) => setDeleteTarget(users[i])}
       />
@@ -101,30 +119,40 @@ export default function UsersPage() {
             {error && <p className="rounded-md bg-red-50 p-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">{error}</p>}
             <div>
               <label className="mb-1 block text-xs text-slate-500">E-posta</label>
-              <input required type="email" className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">Ad</label>
-                <input className={inputCls} value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">Soyad</label>
-                <input className={inputCls} value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
-              </div>
+              <input required={form.role !== 'STUDENT'} type="email" className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder={form.role === 'STUDENT' ? 'Boş bırakılırsa sistem üretir' : ''} />
             </div>
             <div>
+              <label className="mb-1 block text-xs text-slate-500">Ad Soyad</label>
+              <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </div>
+            {form.role !== 'STUDENT' ? <div>
               <label className="mb-1 block text-xs text-slate-500">Şifre</label>
               <input required type="password" className={inputCls} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-            </div>
+            </div> : null}
             <div>
               <label className="mb-1 block text-xs text-slate-500">Rol</label>
-              <select className={inputCls} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                <option value="ADMIN">Admin</option>
-                <option value="PLANNER">Planlayıcı</option>
-                <option value="VIEWER">Görüntüleyici</option>
+              <select className={inputCls} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
+                {roles.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </div>
+            {form.role === 'STUDENT' ? (
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Öğrenci Profili</label>
+                <select required className={inputCls} value={form.studentId} onChange={(e) => setForm({ ...form, studentId: e.target.value })}>
+                  <option value="">Öğrenci seçin</option>
+                  {students.map((student) => <option key={student.id} value={student.id}>{student.studentNo} - {student.fullName}</option>)}
+                </select>
+                <p className="mt-1 text-xs text-slate-500">Varsayılan şifre 12345678 olur ve ilk girişte değiştirilir.</p>
+              </div>
+            ) : (
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Bölüm</label>
+                <select className={inputCls} value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
+                  <option value="">Bölüm yok</option>
+                  {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+                </select>
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setCreateOpen(false)} className="rounded-md border px-4 py-2 text-sm dark:border-slate-700">İptal</button>
               <button type="submit" className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Oluştur</button>
@@ -141,15 +169,9 @@ export default function UsersPage() {
               <label className="mb-1 block text-xs text-slate-500">E-posta</label>
               <input required type="email" className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">Ad</label>
-                <input className={inputCls} value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">Soyad</label>
-                <input className={inputCls} value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
-              </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">Ad Soyad</label>
+              <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-500">Yeni Şifre (boş bırakılırsa değişmez)</label>
@@ -157,10 +179,8 @@ export default function UsersPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-500">Rol</label>
-              <select className={inputCls} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                <option value="ADMIN">Admin</option>
-                <option value="PLANNER">Planlayıcı</option>
-                <option value="VIEWER">Görüntüleyici</option>
+              <select className={inputCls} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
+                {roles.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </div>
             <div className="flex justify-end gap-2 pt-2">

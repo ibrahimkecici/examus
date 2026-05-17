@@ -1,12 +1,14 @@
 const express = require('express');
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
+const { requireRole } = require('../middleware/auth');
 const { recheckScenario, runScenario } = require('../services/planningService');
 
 const router = express.Router();
 
 router.post(
   '/scenarios',
+  requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const data = await prisma.planningScenario.create({
       data: {
@@ -49,6 +51,7 @@ router.get(
 
 router.post(
   '/scenarios/:id/run',
+  requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     try {
       res.json({ success: true, data: await runScenario(req.params.id) });
@@ -64,10 +67,11 @@ router.post(
     }
   }),
 );
-router.post('/scenarios/:id/recheck', asyncHandler(async (req, res) => res.json({ success: true, data: await recheckScenario(req.params.id) })));
+router.post('/scenarios/:id/recheck', requireRole('ADMIN'), asyncHandler(async (req, res) => res.json({ success: true, data: await recheckScenario(req.params.id) })));
 
 router.post(
   '/scenarios/:id/approve',
+  requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const scenario = await prisma.planningScenario.findUnique({ where: { id: req.params.id }, include: { schedules: true } });
     if (!scenario) return res.status(404).json({ success: false, message: 'Planlama senaryosu bulunamadı.' });

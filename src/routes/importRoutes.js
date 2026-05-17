@@ -2,15 +2,16 @@ const express = require('express');
 const multer = require('multer');
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
+const { requireRole } = require('../middleware/auth');
 const { importClassrooms, importCourses, importInvigilators, importStudents } = require('../services/importService');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.post('/students', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importStudents(req.file) })));
-router.post('/courses', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importCourses(req.file) })));
-router.post('/classrooms', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importClassrooms(req.file) })));
-router.post('/invigilators', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importInvigilators(req.file) })));
+router.post('/students', requireRole('ADMIN', 'DEPARTMENT_MANAGER'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importStudents(req.file, req) })));
+router.post('/courses', requireRole('ADMIN', 'DEPARTMENT_MANAGER'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importCourses(req.file, req) })));
+router.post('/classrooms', requireRole('ADMIN'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importClassrooms(req.file) })));
+router.post('/invigilators', requireRole('ADMIN', 'DEPARTMENT_MANAGER'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importInvigilators(req.file, req) })));
 
 router.get(
   '/:id/errors',

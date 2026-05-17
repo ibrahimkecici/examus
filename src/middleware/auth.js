@@ -19,7 +19,16 @@ exports.requireAuth = async (req, res, next) => {
     const payload = jwt.verify(token, JWT_SECRET);
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, name: true, email: true, role: true, department: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        department: true,
+        departmentId: true,
+        mustChangePassword: true,
+        departmentRef: true,
+      },
     });
 
     if (!user) {
@@ -27,6 +36,13 @@ exports.requireAuth = async (req, res, next) => {
     }
 
     req.user = user;
+    if (
+      user.mustChangePassword &&
+      !req.path.includes('/complete-password-setup') &&
+      !req.path.includes('/me')
+    ) {
+      return res.status(403).json({ success: false, message: 'Devam etmek için önce yeni şifre belirleyin.', code: 'PASSWORD_SETUP_REQUIRED' });
+    }
     next();
   } catch (error) {
     return res.status(401).json({ success: false, message: 'Oturum doğrulanamadı.' });

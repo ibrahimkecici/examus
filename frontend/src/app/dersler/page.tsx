@@ -5,23 +5,31 @@ import DataTable from '@/components/DataTable';
 import Modal, { ConfirmDialog } from '@/components/Modal';
 import { apiFetch } from '@/lib/api';
 
-type Course = { id: string; code: string; name: string; instructorName?: string; studentCount: number; durationMinutes: number; examType: string };
+type Course = { id: string; code: string; name: string; instructorName?: string; studentCount: number; durationMinutes: number; examType: string; department?: string | null };
+type Department = { id: string; name: string };
 
-const emptyForm = { code: '', name: '', instructorName: '', studentCount: '0', durationMinutes: '120' };
+const emptyForm = { code: '', name: '', instructorName: '', studentCount: '0', durationMinutes: '120', departmentId: '' };
 
 export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editTarget, setEditTarget] = useState<Course | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Course | null>(null);
 
   async function load() {
-    const response = await apiFetch<Course[]>('/courses');
+    const [response, departmentResponse] = await Promise.all([apiFetch<Course[]>('/courses'), apiFetch<Department[]>('/departments')]);
     setCourses(response.data);
+    setDepartments(departmentResponse.data);
   }
 
   useEffect(() => {
-    apiFetch<Course[]>('/courses').then((response) => setCourses(response.data)).catch(console.error);
+    Promise.all([apiFetch<Course[]>('/courses'), apiFetch<Department[]>('/departments')])
+      .then(([response, departmentResponse]) => {
+        setCourses(response.data);
+        setDepartments(departmentResponse.data);
+      })
+      .catch(console.error);
   }, []);
 
   async function submit(event: React.FormEvent) {
@@ -50,7 +58,7 @@ export default function CoursesPage() {
 
   function startEdit(index: number) {
     const c = courses[index];
-    setForm({ code: c.code, name: c.name, instructorName: c.instructorName || '', studentCount: String(c.studentCount), durationMinutes: String(c.durationMinutes) });
+    setForm({ code: c.code, name: c.name, instructorName: c.instructorName || '', studentCount: String(c.studentCount), durationMinutes: String(c.durationMinutes), departmentId: '' });
     setEditTarget(c);
   }
 
@@ -63,17 +71,21 @@ export default function CoursesPage() {
         <p className="text-slate-500">Ders, sınav süresi ve öğretim elemanı bilgileri.</p>
       </header>
 
-      <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-6">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-7">
         <input required placeholder="Ders Kodu" className={inputCls} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} />
         <input required placeholder="Ders Adı" className={`${inputCls} md:col-span-2`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input placeholder="Öğretim Elemanı" className={inputCls} value={form.instructorName} onChange={(e) => setForm({ ...form, instructorName: e.target.value })} />
         <input type="number" placeholder="Öğrenci" className={inputCls} value={form.studentCount} onChange={(e) => setForm({ ...form, studentCount: e.target.value })} />
+        <select className={inputCls} value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
+          <option value="">Bölüm</option>
+          {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+        </select>
         <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">Ekle</button>
       </form>
 
       <DataTable
-        columns={['Kod', 'Ad', 'Öğretim Elemanı', 'Öğrenci', 'Süre', 'Tür']}
-        rows={courses.map((c) => [c.code, c.name, c.instructorName || '-', c.studentCount, `${c.durationMinutes} dk`, c.examType])}
+        columns={['Kod', 'Ad', 'Öğretim Elemanı', 'Bölüm', 'Öğrenci', 'Süre', 'Tür']}
+        rows={courses.map((c) => [c.code, c.name, c.instructorName || '-', c.department || '-', c.studentCount, `${c.durationMinutes} dk`, c.examType])}
         onEdit={startEdit}
         onDelete={(i) => setDeleteTarget(courses[i])}
       />
@@ -98,6 +110,13 @@ export default function CoursesPage() {
             <div>
               <label className="mb-1 block text-xs text-slate-500">Öğretim Elemanı</label>
               <input className={inputCls} value={form.instructorName} onChange={(e) => setForm({ ...form, instructorName: e.target.value })} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">Bölüm</label>
+              <select className={inputCls} value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
+                <option value="">Mevcut bölüm değişmesin</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </select>
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-500">Sınav Süresi (dk)</label>

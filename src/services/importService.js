@@ -1,7 +1,9 @@
 const { parse } = require('csv-parse/sync');
 const XLSX = require('xlsx');
+const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { syncCourseStudentCounts } = require('./courseStatsService');
+const { resolveDepartment } = require('../utils/departmentResolver');
 
 function readRows(file) {
   if (!file) {
@@ -60,7 +62,7 @@ function jsonValue(row, keys) {
   }
 }
 
-async function importStudents(file) {
+async function importStudents(file, req) {
   const rows = readRows(file);
   const errors = [];
   let successRows = 0;
@@ -74,6 +76,7 @@ async function importStudents(file) {
     const studentNo = value(row, ['studentNo', 'ogrenciNo', 'Öğrenci No', 'numara']);
     const fullName = value(row, ['fullName', 'adSoyad', 'Ad Soyad', 'ad_soyad']);
     const department = value(row, ['department', 'bolum', 'Bölüm']) || 'Genel';
+    let departmentRecord = null;
     const courseCodes = value(row, ['courses', 'dersler', 'Dersler'])
       .split(/[;,]/)
       .map((item) => item.trim())
@@ -85,11 +88,28 @@ async function importStudents(file) {
     }
 
     try {
+      departmentRecord = await resolveDepartment(prisma, department, req);
       const student = await prisma.student.upsert({
         where: { studentNo },
-        update: { fullName, department, specialNeeds: value(row, ['specialNeeds', 'ozelDurum', 'Özel Durum']) || null },
-        create: { studentNo, fullName, department, specialNeeds: value(row, ['specialNeeds', 'ozelDurum', 'Özel Durum']) || null },
+        update: { fullName, department: departmentRecord.name, departmentId: departmentRecord.id, specialNeeds: value(row, ['specialNeeds', 'ozelDurum', 'Özel Durum']) || null },
+        create: { studentNo, fullName, department: departmentRecord.name, departmentId: departmentRecord.id, specialNeeds: value(row, ['specialNeeds', 'ozelDurum', 'Özel Durum']) || null },
       });
+      if (!student.userId) {
+        const user = await prisma.user.upsert({
+          where: { email: `${studentNo}@students.examus.local` },
+          update: { name: fullName, role: 'STUDENT', department: departmentRecord.name, departmentId: departmentRecord.id, mustChangePassword: true },
+          create: {
+            name: fullName,
+            email: `${studentNo}@students.examus.local`,
+            role: 'STUDENT',
+            department: departmentRecord.name,
+            departmentId: departmentRecord.id,
+            mustChangePassword: true,
+            passwordHash: await bcrypt.hash('12345678', 10),
+          },
+        });
+        await prisma.student.update({ where: { id: student.id }, data: { userId: user.id } });
+      }
 
       for (const code of courseCodes) {
         const course = await prisma.course.findUnique({ where: { code } });
@@ -121,7 +141,7 @@ async function importStudents(file) {
   });
 }
 
-async function importCourses(file) {
+async function importCourses(file, req) {
   const rows = readRows(file);
   const errors = [];
   let successRows = 0;
@@ -135,10 +155,13 @@ async function importCourses(file) {
       continue;
     }
 
+    const departmentName = value(row, ['department', 'bolum', 'Bölüm']) || null;
+    const department = departmentName || req?.user?.role === 'DEPARTMENT_MANAGER' ? await resolveDepartment(prisma, departmentName, req) : null;
     const courseData = {
       name,
       instructorName: value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']) || null,
-      department: value(row, ['department', 'bolum', 'Bölüm']) || null,
+      department: department?.name || departmentName,
+      departmentId: department?.id || null,
       studentCount: Number(value(row, ['studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı'])) || 0,
       durationMinutes: Number(value(row, ['durationMinutes', 'sure', 'Süre'])) || 120,
       requiredRoomType: value(row, ['requiredRoomType', 'roomType', 'derslikTipi', 'Derslik Tipi']) || null,
@@ -215,7 +238,7 @@ async function importClassrooms(file) {
   return prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
 }
 
-async function importInvigilators(file) {
+async function importInvigilators(file, req) {
   const rows = readRows(file);
   const errors = [];
   let successRows = 0;
@@ -229,6 +252,8 @@ async function importInvigilators(file) {
       errors.push({ row: index + 2, message: 'Sicil no, ad ve soyad zorunludur.' });
       continue;
     }
+    const departmentName = value(row, ['department', 'bolum', 'Bölüm']) || null;
+    const department = departmentName || req?.user?.role === 'DEPARTMENT_MANAGER' ? await resolveDepartment(prisma, departmentName, req) : null;
     await prisma.invigilator.upsert({
       where: { staffNo },
       update: {
@@ -236,7 +261,8 @@ async function importInvigilators(file) {
         lastName,
         title: value(row, ['title', 'unvan', 'Unvan']) || null,
         email: value(row, ['email', 'Email']) || null,
-        department: value(row, ['department', 'bolum', 'Bölüm']) || null,
+        department: department?.name || departmentName,
+        departmentId: department?.id || null,
         maxAssignments: numberValue(row, ['maxAssignments', 'maksGorev', 'Maks Görev'], 4),
         priority: numberValue(row, ['priority', 'oncelik', 'Öncelik'], 0),
         constraints: jsonValue(row, ['constraints', 'kisitlar', 'Kısıtlar']),
@@ -247,7 +273,8 @@ async function importInvigilators(file) {
         lastName,
         title: value(row, ['title', 'unvan', 'Unvan']) || null,
         email: value(row, ['email', 'Email']) || null,
-        department: value(row, ['department', 'bolum', 'Bölüm']) || null,
+        department: department?.name || departmentName,
+        departmentId: department?.id || null,
         maxAssignments: numberValue(row, ['maxAssignments', 'maksGorev', 'Maks Görev'], 4),
         priority: numberValue(row, ['priority', 'oncelik', 'Öncelik'], 0),
         constraints: jsonValue(row, ['constraints', 'kisitlar', 'Kısıtlar']),

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import DataTable from '@/components/DataTable';
 import StatusPill from '@/components/StatusPill';
 import { apiFetch } from '@/lib/api';
+import { CurrentUser, getStoredUser } from '@/lib/auth';
 
 type Period = { id: string; name: string };
 type Scenario = { id: string; name: string; strategy: string; status: string; score: number; metrics?: Record<string, unknown>; warnings?: Array<{ message: string }>; period?: Period };
@@ -16,6 +17,8 @@ export default function PlanningPage() {
   const [selected, setSelected] = useState<Scenario | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string>('');
+  const [user, setUser] = useState<CurrentUser | null>(null);
+  const isAdmin = user?.role === 'ADMIN';
 
   async function load() {
     const [periodResponse, scenarioResponse] = await Promise.all([apiFetch<Period[]>('/exam-periods'), apiFetch<Scenario[]>('/planning/scenarios')]);
@@ -24,6 +27,7 @@ export default function PlanningPage() {
   }
 
   useEffect(() => {
+    setUser(getStoredUser());
     Promise.all([apiFetch<Period[]>('/exam-periods'), apiFetch<Scenario[]>('/planning/scenarios')])
       .then(([periodResponse, scenarioResponse]) => {
         setPeriods(periodResponse.data);
@@ -69,7 +73,7 @@ export default function PlanningPage() {
   return (
     <div className="space-y-6">
       <header><h2 className="text-3xl font-bold">Otomatik Planlama</h2><p className="text-slate-500">Senaryo üret, çalıştır, karşılaştır ve onayla.</p></header>
-      <form onSubmit={createScenario} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-4">
+      {isAdmin ? <form onSubmit={createScenario} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-4">
         <select required className="rounded-md border px-3 py-2 dark:border-slate-700 dark:bg-slate-950" value={form.periodId} onChange={(e) => setForm({ ...form, periodId: e.target.value })}>
           <option value="">Dönem seçin</option>
           {periods.map((period) => <option key={period.id} value={period.id}>{period.name}</option>)}
@@ -86,7 +90,11 @@ export default function PlanningPage() {
           <option value="heuristic">Eski Heuristik</option>
         </select>
         <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white">Senaryo Oluştur</button>
-      </form>
+      </form> : (
+        <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+          Senaryo çalıştırma ve onaylama yetkisi yalnızca sistem yöneticisindedir. Mevcut sonuçları görüntüleyebilirsiniz.
+        </div>
+      )}
       {runError ? (
         <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           {runError}
@@ -102,15 +110,19 @@ export default function PlanningPage() {
           Math.round(scenario.score),
           <div key={scenario.id} className="flex flex-wrap gap-2">
             <Link href={`/planlama/${scenario.id}`} className="rounded-md border px-2 py-1 text-sm">Detay</Link>
-            <button
-              onClick={() => run(scenario.id)}
-              disabled={runningId === scenario.id}
-              className="rounded-md border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {runningId === scenario.id ? 'Çalışıyor…' : 'Çalıştır'}
-            </button>
-            <button onClick={() => insight(scenario.id)} className="rounded-md border px-2 py-1 text-sm">AI</button>
-            <button onClick={() => approve(scenario.id)} className="rounded-md border px-2 py-1 text-sm">Onayla</button>
+            {isAdmin ? (
+              <>
+                <button
+                  onClick={() => run(scenario.id)}
+                  disabled={runningId === scenario.id}
+                  className="rounded-md border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {runningId === scenario.id ? 'Çalışıyor…' : 'Çalıştır'}
+                </button>
+                <button onClick={() => insight(scenario.id)} className="rounded-md border px-2 py-1 text-sm">AI</button>
+                <button onClick={() => approve(scenario.id)} className="rounded-md border px-2 py-1 text-sm">Onayla</button>
+              </>
+            ) : null}
           </div>,
         ])}
       />

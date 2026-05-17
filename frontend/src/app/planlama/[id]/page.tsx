@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import DataTable from '@/components/DataTable';
 import StatusPill from '@/components/StatusPill';
 import { apiFetch, formatDate, getApiBaseUrl, getToken } from '@/lib/api';
+import { CurrentUser, getStoredUser } from '@/lib/auth';
 
 type Course = { code: string; name: string };
 type Exam = { id: string; type: string; durationMinutes: number; course: Course };
@@ -67,8 +68,11 @@ export default function ScenarioDetailPage() {
   const [activeTab, setActiveTab] = useState<Tab>('Özet');
   const [running, setRunning] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [user, setUser] = useState<CurrentUser | null>(null);
+  const isAdmin = user?.role === 'ADMIN';
 
   useEffect(() => {
+    setUser(getStoredUser());
     apiFetch<Scenario>(`/planning/scenarios/${params.id}`)
       .then((r) => setScenario(r.data))
       .catch((err) => setError(err instanceof Error ? err.message : 'Yüklenemedi.'));
@@ -128,18 +132,24 @@ export default function ScenarioDetailPage() {
         <InfoCard label="Güncelleme" value={formatDate(scenario.updatedAt)} />
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={run}
-          disabled={running}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {running ? 'Çalışıyor…' : 'Çalıştır'}
-        </button>
-        <button onClick={recheck} disabled={running} className="rounded-md border px-3 py-2 text-sm disabled:opacity-60">Tekrar Kontrol Et</button>
-        <button onClick={approve} disabled={scenario.status === 'APPROVED' || running} className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Onayla</button>
-        <button onClick={generateInsight} disabled={running} className="rounded-md border px-3 py-2 text-sm disabled:opacity-60">AI Önerisi Üret</button>
-      </div>
+      {isAdmin ? (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={run}
+            disabled={running}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {running ? 'Çalışıyor…' : 'Çalıştır'}
+          </button>
+          <button onClick={recheck} disabled={running} className="rounded-md border px-3 py-2 text-sm disabled:opacity-60">Tekrar Kontrol Et</button>
+          <button onClick={approve} disabled={scenario.status === 'APPROVED' || running} className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Onayla</button>
+          <button onClick={generateInsight} disabled={running} className="rounded-md border px-3 py-2 text-sm disabled:opacity-60">AI Önerisi Üret</button>
+        </div>
+      ) : (
+        <div className="rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+          Bu senaryoyu görüntüleyebilirsiniz. Çalıştırma, tekrar kontrol ve onay işlemleri yalnızca sistem yöneticisi tarafından yapılır.
+        </div>
+      )}
       {actionError ? (
         <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           {actionError}

@@ -6,22 +6,30 @@ import Modal, { ConfirmDialog } from '@/components/Modal';
 import { apiFetch } from '@/lib/api';
 
 type Student = { id: string; studentNo: string; fullName: string; department: string; classLevel?: number; specialNeeds?: string; enrollments: Array<{ course: { code: string } }> };
+type Department = { id: string; name: string };
 
-const emptyForm = { studentNo: '', fullName: '', department: '', specialNeeds: '' };
+const emptyForm = { studentNo: '', fullName: '', department: '', departmentId: '', specialNeeds: '' };
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editTarget, setEditTarget] = useState<Student | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null);
 
   async function load() {
-    const response = await apiFetch<Student[]>('/students');
+    const [response, departmentResponse] = await Promise.all([apiFetch<Student[]>('/students'), apiFetch<Department[]>('/departments')]);
     setStudents(response.data);
+    setDepartments(departmentResponse.data);
   }
 
   useEffect(() => {
-    apiFetch<Student[]>('/students').then((response) => setStudents(response.data)).catch(console.error);
+    Promise.all([apiFetch<Student[]>('/students'), apiFetch<Department[]>('/departments')])
+      .then(([response, departmentResponse]) => {
+        setStudents(response.data);
+        setDepartments(departmentResponse.data);
+      })
+      .catch(console.error);
   }, []);
 
   async function submit(event: React.FormEvent) {
@@ -48,7 +56,7 @@ export default function StudentsPage() {
 
   function startEdit(index: number) {
     const s = students[index];
-    setForm({ studentNo: s.studentNo, fullName: s.fullName, department: s.department, specialNeeds: s.specialNeeds || '' });
+    setForm({ studentNo: s.studentNo, fullName: s.fullName, department: s.department, departmentId: '', specialNeeds: s.specialNeeds || '' });
     setEditTarget(s);
   }
 
@@ -64,7 +72,10 @@ export default function StudentsPage() {
       <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-5">
         <input required placeholder="Öğrenci No" className={inputCls} value={form.studentNo} onChange={(e) => setForm({ ...form, studentNo: e.target.value })} />
         <input required placeholder="Ad Soyad" className={inputCls} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
-        <input required placeholder="Bölüm" className={inputCls} value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
+        <select required className={inputCls} value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value, department: departments.find((d) => d.id === e.target.value)?.name || '' })}>
+          <option value="">Bölüm seçin</option>
+          {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+        </select>
         <input placeholder="Özel İhtiyaç (isteğe bağlı)" className={inputCls} value={form.specialNeeds} onChange={(e) => setForm({ ...form, specialNeeds: e.target.value })} />
         <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">Ekle</button>
       </form>
@@ -89,7 +100,10 @@ export default function StudentsPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-500">Bölüm</label>
-              <input required className={inputCls} value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
+              <select required className={inputCls} value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value, department: departments.find((d) => d.id === e.target.value)?.name || form.department })}>
+                <option value="">{form.department || 'Bölüm seçin'}</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </select>
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-500">Özel İhtiyaç</label>

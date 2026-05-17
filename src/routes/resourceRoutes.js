@@ -1,4 +1,6 @@
 const crudRouter = require('../utils/crudRouter');
+const prisma = require('../config/prisma');
+const { resolveDepartment } = require('../utils/departmentResolver');
 
 const seatInclude = { seats: { orderBy: [{ row: 'asc' }, { column: 'asc' }] } };
 
@@ -42,8 +44,32 @@ function normalizeClassroomUpdate(body) {
   return data;
 }
 
-function normalizeInvigilator(body) {
-  return {
+async function withDepartment(data, body, req) {
+  const explicitDepartmentId = body.departmentId;
+  if (explicitDepartmentId) {
+    if (req?.user?.role === 'DEPARTMENT_MANAGER' && explicitDepartmentId !== req.user.departmentId) {
+      const error = new Error('Bu bölüm için işlem yapamazsınız.');
+      error.status = 403;
+      throw error;
+    }
+    const department = await prisma.department.findUnique({ where: { id: explicitDepartmentId } });
+    return { ...data, departmentId: explicitDepartmentId, department: department?.name || data.department || null };
+  }
+
+  if (body.department || body.bolum || req?.user?.role === 'DEPARTMENT_MANAGER') {
+    const department = await resolveDepartment(prisma, body.department || body.bolum, req);
+    return { ...data, departmentId: department.id, department: department.name };
+  }
+
+  return data;
+}
+
+function stripUndefined(data) {
+  return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
+}
+
+async function normalizeInvigilator(body, req) {
+  return withDepartment(stripUndefined({
     staffNo: body.staffNo || body.sicilNo,
     firstName: body.firstName || body.ad,
     lastName: body.lastName || body.soyad,
@@ -54,14 +80,15 @@ function normalizeInvigilator(body) {
     maxAssignments: Number(body.maxAssignments || 4),
     priority: Number(body.priority || 0),
     constraints: body.constraints || null,
-  };
+  }), body, req);
 }
 
-function normalizeCourse(body) {
-  return {
+async function normalizeCourse(body, req) {
+  return withDepartment(stripUndefined({
     code: body.code || body.dersKodu,
     name: body.name || body.dersAd,
     instructorName: body.instructorName || body.sorumluOgretimUyesi || null,
+    instructorId: body.instructorId || null,
     department: body.department || body.bolum || null,
     studentCount: Number(body.studentCount || body.ogrenciSayisi || 0),
     durationMinutes: Number(body.durationMinutes || body.sure || 120),
@@ -69,17 +96,17 @@ function normalizeCourse(body) {
     specialRules: body.specialRules || null,
     requiredRoomType: body.requiredRoomType || null,
     requiredFeatures: body.requiredFeatures || null,
-  };
+  }), body, req);
 }
 
-function normalizeStudent(body) {
-  return {
+async function normalizeStudent(body, req) {
+  return withDepartment(stripUndefined({
     studentNo: body.studentNo || body.ogrenciNo,
     fullName: body.fullName || body.adSoyad,
     department: body.department || body.bolum || 'Genel',
     classLevel: body.classLevel ? Number(body.classLevel) : null,
     specialNeeds: body.specialNeeds || body.ozelDurum || null,
-  };
+  }), body, req);
 }
 
 function normalizeExam(body) {
@@ -103,13 +130,18 @@ function normalizeExam(body) {
 
 module.exports = {
   classroomRoutes: crudRouter('classroom', { include: seatInclude, mapCreate: normalizeClassroom, mapUpdate: normalizeClassroomUpdate }),
-  courseRoutes: crudRouter('course', { include: { enrollments: true, exams: true }, mapCreate: normalizeCourse, mapUpdate: normalizeCourse }),
+  departmentRoutes: crudRouter('department', {
+    include: { _count: { select: { users: true, students: true, courses: true, invigilators: true } } },
+    mapCreate: (body) => ({ code: body.code, name: body.name }),
+    mapUpdate: (body) => stripUndefined({ code: body.code, name: body.name }),
+  }),
+  courseRoutes: crudRouter('course', { include: { departmentRef: true, instructor: true, enrollments: true, exams: true }, mapCreate: normalizeCourse, mapUpdate: normalizeCourse }),
   examPeriodRoutes: crudRouter('examPeriod', {
     include: { exams: { include: { course: true } }, scenarios: true },
     mapCreate: (body) => ({ name: body.name, startDate: new Date(body.startDate), endDate: new Date(body.endDate), slots: body.slots || [] }),
     mapUpdate: (body) => ({ ...body, startDate: body.startDate ? new Date(body.startDate) : undefined, endDate: body.endDate ? new Date(body.endDate) : undefined }),
   }),
   examRoutes: crudRouter('exam', { include: { course: true, period: true, roomAssignments: { include: { classroom: true } } }, mapCreate: normalizeExam, mapUpdate: normalizeExam }),
-  invigilatorRoutes: crudRouter('invigilator', { include: { availability: true, assignments: { include: { exam: { include: { course: true } } } } }, mapCreate: normalizeInvigilator, mapUpdate: normalizeInvigilator }),
-  studentRoutes: crudRouter('student', { include: { enrollments: { include: { course: true } } }, mapCreate: normalizeStudent, mapUpdate: normalizeStudent }),
+  invigilatorRoutes: crudRouter('invigilator', { include: { departmentRef: true, user: true, availability: true, assignments: { include: { exam: { include: { course: true } } } } }, mapCreate: normalizeInvigilator, mapUpdate: normalizeInvigilator }),
+  studentRoutes: crudRouter('student', { include: { departmentRef: true, user: true, enrollments: { include: { course: true } } }, mapCreate: normalizeStudent, mapUpdate: normalizeStudent }),
 };

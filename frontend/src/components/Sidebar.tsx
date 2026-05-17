@@ -2,22 +2,24 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Modal from '@/components/Modal';
 import { apiFetch } from '@/lib/api';
+import { CurrentUser, getStoredUser, ROLE_LABELS } from '@/lib/auth';
 
 const navItems = [
-  { href: '/', label: 'Panel', icon: '▦' },
-  { href: '/veri-yukleme', label: 'Veri Yükleme', icon: '⇧' },
-  { href: '/ogrenciler', label: 'Öğrenciler', icon: '◎' },
-  { href: '/dersler', label: 'Dersler', icon: '□' },
-  { href: '/derslikler', label: 'Derslikler', icon: '⌂' },
-  { href: '/gozetmenler', label: 'Gözetmenler', icon: '◇' },
-  { href: '/donemler', label: 'Dönemler', icon: '◫' },
-  { href: '/sinavlar', label: 'Sınavlar', icon: '◷' },
-  { href: '/planlama', label: 'Planlama', icon: '⌁' },
-  { href: '/raporlar', label: 'Raporlar', icon: '≡' },
-  { href: '/kullanicilar', label: 'Kullanıcılar', icon: '⊙' },
+  { href: '/', label: 'Panel', icon: '▦', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'] },
+  { href: '/veri-yukleme', label: 'Veri Yükleme', icon: '⇧', roles: ['ADMIN'] },
+  { href: '/ogrenciler', label: 'Öğrenciler', icon: '◎', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'] },
+  { href: '/dersler', label: 'Dersler', icon: '□', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'] },
+  { href: '/derslikler', label: 'Derslikler', icon: '⌂', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR'] },
+  { href: '/bolumler', label: 'Bölümler', icon: '◇', roles: ['ADMIN'] },
+  { href: '/gozetmenler', label: 'Gözetmenler', icon: '◇', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INVIGILATOR'] },
+  { href: '/donemler', label: 'Dönemler', icon: '◫', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR'] },
+  { href: '/sinavlar', label: 'Sınavlar', icon: '◷', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'] },
+  { href: '/planlama', label: 'Planlama', icon: '⌁', roles: ['ADMIN', 'DEPARTMENT_MANAGER'] },
+  { href: '/raporlar', label: 'Raporlar', icon: '≡', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'] },
+  { href: '/kullanicilar', label: 'Kullanıcılar', icon: '⊙', roles: ['ADMIN'] },
 ];
 
 export default function Sidebar() {
@@ -25,6 +27,14 @@ export default function Sidebar() {
   const [pwOpen, setPwOpen] = useState(false);
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '' });
   const [pwMsg, setPwMsg] = useState('');
+  const [user, setUser] = useState<CurrentUser | null>(null);
+
+  useEffect(() => {
+    const update = () => setUser(getStoredUser());
+    update();
+    window.addEventListener('examus_user_changed', update);
+    return () => window.removeEventListener('examus_user_changed', update);
+  }, []);
 
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
@@ -49,7 +59,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto">
-        {navItems.map((item) => {
+        {navItems.filter((item) => !user || item.roles.includes(user.role)).map((item) => {
           const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
           return (
             <Link
@@ -72,7 +82,8 @@ export default function Sidebar() {
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-slate-900 dark:bg-white shrink-0"></div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Admin</p>
+            <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-200">{user?.name || 'Kullanıcı'}</p>
+            {user?.role ? <p className="truncate text-xs text-slate-500">{ROLE_LABELS[user.role]}</p> : null}
             <button onClick={() => { setPwMsg(''); setPwOpen(true); }} className="text-xs text-blue-500 hover:underline">
               Şifre Değiştir
             </button>
