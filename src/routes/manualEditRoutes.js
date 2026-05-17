@@ -35,6 +35,18 @@ router.patch(
   '/seat-assignments/:id',
   requireRole('ADMIN', 'DEPARTMENT_MANAGER'),
   asyncHandler(async (req, res) => {
+    const existing = await prisma.seatAssignment.findUnique({
+      where: { id: req.params.id },
+      include: { student: true, exam: { include: { course: true } } },
+    });
+    if (!existing) return res.status(404).json({ success: false, message: 'Oturma ataması bulunamadı.' });
+    if (
+      req.user.role === 'DEPARTMENT_MANAGER' &&
+      existing.student.departmentId !== req.user.departmentId &&
+      existing.exam.course.departmentId !== req.user.departmentId
+    ) {
+      return res.status(403).json({ success: false, message: 'Bu işlem için yetkiniz yok.' });
+    }
     const data = await prisma.seatAssignment.update({
       where: { id: req.params.id },
       data: { seatId: req.body.seatId, locked: req.body.locked === undefined ? undefined : Boolean(req.body.locked) },

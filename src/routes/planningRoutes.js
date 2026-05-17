@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const { requireRole } = require('../middleware/auth');
+const { filterScenarioForUser, scenarioWhereForUser } = require('../utils/scenarioAccess');
 const { recheckScenario, runScenario } = require('../services/planningService');
 
 const router = express.Router();
@@ -23,20 +24,22 @@ router.post(
 
 router.get(
   '/scenarios',
+  requireRole('ADMIN', 'DEPARTMENT_MANAGER'),
   asyncHandler(async (req, res) => {
-    const data = await prisma.planningScenario.findMany({ include: { period: true }, orderBy: { createdAt: 'desc' } });
+    const data = await prisma.planningScenario.findMany({ where: scenarioWhereForUser(req.user), include: { period: true }, orderBy: { createdAt: 'desc' } });
     res.json({ success: true, count: data.length, data });
   }),
 );
 
 router.get(
   '/scenarios/:id',
+  requireRole('ADMIN', 'DEPARTMENT_MANAGER'),
   asyncHandler(async (req, res) => {
     const data = await prisma.planningScenario.findUnique({
       where: { id: req.params.id },
       include: {
         period: true,
-        schedules: true,
+        schedules: { include: { exam: { include: { course: true } } } },
         roomSlots: { include: { classroom: true, assignments: { include: { exam: { include: { course: true } } } } } },
         rooms: { include: { classroom: true, exam: { include: { course: true } } } },
         seats: { include: { student: true, seat: true, exam: { include: { course: true } }, classroom: true } },
@@ -45,7 +48,9 @@ router.get(
       },
     });
     if (!data) return res.status(404).json({ success: false, message: 'Planlama senaryosu bulunamadı.' });
-    res.json({ success: true, data });
+    const scoped = filterScenarioForUser(data, req.user);
+    if (!scoped) return res.status(404).json({ success: false, message: 'Planlama senaryosu bulunamadı.' });
+    res.json({ success: true, data: scoped });
   }),
 );
 

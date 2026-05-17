@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import DataTable from '@/components/DataTable';
 import { apiFetch, formatDate } from '@/lib/api';
+import { getStoredUser } from '@/lib/auth';
 
 type Course = { id: string; code: string; name: string; instructorName?: string; studentCount: number };
 type Period = { id: string; name: string };
@@ -28,6 +29,7 @@ export default function SinavDetay() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [editing, setEditing] = useState(false);
+  const [user] = useState(() => getStoredUser());
   const [form, setForm] = useState({ courseId: '', periodId: '', date: '', startTime: '', endTime: '', durationMinutes: '120', pinned: false });
   const [saving, setSaving] = useState(false);
 
@@ -63,6 +65,7 @@ export default function SinavDetay() {
 
   if (!exam) return <div className="p-8 text-slate-500">Yükleniyor...</div>;
 
+  const canEdit = ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR'].includes(user?.role || '');
   const inputCls = 'rounded-md border px-3 py-2 text-sm w-full dark:border-slate-700 dark:bg-slate-950';
 
   return (
@@ -74,7 +77,7 @@ export default function SinavDetay() {
           <h2 className="text-3xl font-bold">{exam.course.name}</h2>
           <p className="text-slate-500">{formatDate(exam.date)} {exam.startTime ? `${exam.startTime}-${exam.endTime}` : ''}</p>
         </div>
-        {!editing && (
+        {canEdit && !editing && (
           <button onClick={() => setEditing(true)} className="rounded-md border px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">Düzenle</button>
         )}
       </header>

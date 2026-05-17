@@ -10,6 +10,7 @@ router.post('/scenarios/:id/insights', requireRole('ADMIN', 'DEPARTMENT_MANAGER'
 
 router.get(
   '/scenarios/:id/insights',
+  requireRole('ADMIN', 'DEPARTMENT_MANAGER'),
   asyncHandler(async (req, res) => {
     const data = await prisma.aiInsight.findMany({ where: { scenarioId: req.params.id }, orderBy: { createdAt: 'desc' } });
     res.json({ success: true, count: data.length, data });

@@ -46,17 +46,32 @@ export function clearStoredAuth() {
 }
 
 export function canAccessPath(user: CurrentUser | null, pathname: string) {
-  if (!user || pathname === '/login') return true;
+  if (pathname === '/login') return true;
+  if (!user) return false;
   if (user.role === 'ADMIN') return true;
+
+  if (pathname === '/') return true;
   if (pathname.startsWith('/kullanicilar')) return false;
+  if (pathname.startsWith('/bolumler')) return false;
   if (pathname.startsWith('/veri-yukleme')) return user.role === 'DEPARTMENT_MANAGER';
   if (pathname.startsWith('/planlama')) return ['DEPARTMENT_MANAGER'].includes(user.role);
-  if (pathname.startsWith('/raporlar')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'].includes(user.role);
+  if (pathname.startsWith('/raporlar')) return ['DEPARTMENT_MANAGER'].includes(user.role);
   if (pathname.startsWith('/ogrenciler')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'].includes(user.role);
   if (pathname.startsWith('/dersler') || pathname.startsWith('/sinavlar')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'].includes(user.role);
+  if (pathname.startsWith('/gozetmenler/yeni')) return user.role === 'DEPARTMENT_MANAGER';
+  if (/^\/gozetmenler\/[^/]+/.test(pathname)) return ['DEPARTMENT_MANAGER', 'INVIGILATOR'].includes(user.role);
   if (pathname.startsWith('/gozetmenler')) return ['DEPARTMENT_MANAGER', 'INVIGILATOR'].includes(user.role);
+  if (pathname.startsWith('/derslikler/yeni')) return false;
   if (pathname.startsWith('/derslikler') || pathname.startsWith('/donemler')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR'].includes(user.role);
-  return true;
+
+  return false;
+}
+
+export function canManageResource(user: CurrentUser | null, resource: 'students' | 'courses' | 'exams' | 'invigilators' | 'periods' | 'classrooms') {
+  if (!user) return false;
+  if (user.role === 'ADMIN') return true;
+  if (['students', 'courses', 'exams', 'invigilators'].includes(resource)) return user.role === 'DEPARTMENT_MANAGER';
+  return false;
 }
 
 export async function refreshCurrentUser() {

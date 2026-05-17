@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import DataTable from '@/components/DataTable';
 import Modal, { ConfirmDialog } from '@/components/Modal';
 import { apiFetch, formatDate } from '@/lib/api';
+import { getStoredUser } from '@/lib/auth';
 
 type Period = { id: string; name: string; startDate: string; endDate: string; status: string; exams: unknown[]; scenarios: unknown[] };
 
@@ -14,6 +15,8 @@ export default function PeriodsPage() {
   const [form, setForm] = useState(emptyForm);
   const [editTarget, setEditTarget] = useState<Period | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Period | null>(null);
+  const [user] = useState(() => getStoredUser());
+  const canManage = user?.role === 'ADMIN';
 
   async function load() {
     const response = await apiFetch<Period[]>('/exam-periods');
@@ -68,18 +71,18 @@ export default function PeriodsPage() {
         <p className="text-slate-500">Tarih aralığı ve günlük slot tanımları.</p>
       </header>
 
-      <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-4">
+      {canManage ? <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-4">
         <input required placeholder="Dönem adı" className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input required type="date" className={inputCls} value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
         <input required type="date" className={inputCls} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
         <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">Dönem Oluştur</button>
-      </form>
+      </form> : null}
 
       <DataTable
         columns={['Ad', 'Başlangıç', 'Bitiş', 'Durum', 'Sınav', 'Senaryo']}
         rows={periods.map((p) => [p.name, formatDate(p.startDate), formatDate(p.endDate), p.status, (p.exams as unknown[]).length, (p.scenarios as unknown[]).length])}
-        onEdit={startEdit}
-        onDelete={(i) => setDeleteTarget(periods[i])}
+        onEdit={canManage ? startEdit : undefined}
+        onDelete={canManage ? (i) => setDeleteTarget(periods[i]) : undefined}
       />
 
       {editTarget && (

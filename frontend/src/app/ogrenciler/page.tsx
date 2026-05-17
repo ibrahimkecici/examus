@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import DataTable from '@/components/DataTable';
 import Modal, { ConfirmDialog } from '@/components/Modal';
 import { apiFetch } from '@/lib/api';
+import { canManageResource, getStoredUser } from '@/lib/auth';
 
 type Student = { id: string; studentNo: string; fullName: string; department: string; classLevel?: number; specialNeeds?: string; enrollments: Array<{ course: { code: string } }> };
 type Department = { id: string; name: string };
@@ -16,6 +17,8 @@ export default function StudentsPage() {
   const [form, setForm] = useState(emptyForm);
   const [editTarget, setEditTarget] = useState<Student | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null);
+  const [user] = useState(() => getStoredUser());
+  const canManage = canManageResource(user, 'students');
 
   async function load() {
     const [response, departmentResponse] = await Promise.all([apiFetch<Student[]>('/students'), apiFetch<Department[]>('/departments')]);
@@ -69,7 +72,7 @@ export default function StudentsPage() {
         <p className="text-slate-500">Öğrenci kayıtları ve ders eşleşmeleri.</p>
       </header>
 
-      <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-5">
+      {canManage ? <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-5">
         <input required placeholder="Öğrenci No" className={inputCls} value={form.studentNo} onChange={(e) => setForm({ ...form, studentNo: e.target.value })} />
         <input required placeholder="Ad Soyad" className={inputCls} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
         <select required className={inputCls} value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value, department: departments.find((d) => d.id === e.target.value)?.name || '' })}>
@@ -78,13 +81,13 @@ export default function StudentsPage() {
         </select>
         <input placeholder="Özel İhtiyaç (isteğe bağlı)" className={inputCls} value={form.specialNeeds} onChange={(e) => setForm({ ...form, specialNeeds: e.target.value })} />
         <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">Ekle</button>
-      </form>
+      </form> : null}
 
       <DataTable
         columns={['No', 'Ad Soyad', 'Bölüm', 'Dersler']}
         rows={students.map((s) => [s.studentNo, s.fullName, s.department, s.enrollments.map((e) => e.course.code).join(', ') || '-'])}
-        onEdit={startEdit}
-        onDelete={(i) => setDeleteTarget(students[i])}
+        onEdit={canManage ? startEdit : undefined}
+        onDelete={canManage ? (i) => setDeleteTarget(students[i]) : undefined}
       />
 
       {editTarget && (

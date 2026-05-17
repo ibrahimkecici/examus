@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import DataTable from '@/components/DataTable';
 import Modal, { ConfirmDialog } from '@/components/Modal';
 import { apiFetch } from '@/lib/api';
+import { canManageResource, getStoredUser } from '@/lib/auth';
 
 type Course = { id: string; code: string; name: string; instructorName?: string; studentCount: number; durationMinutes: number; examType: string; department?: string | null };
 type Department = { id: string; name: string };
@@ -16,6 +17,8 @@ export default function CoursesPage() {
   const [form, setForm] = useState(emptyForm);
   const [editTarget, setEditTarget] = useState<Course | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Course | null>(null);
+  const [user] = useState(() => getStoredUser());
+  const canManage = canManageResource(user, 'courses');
 
   async function load() {
     const [response, departmentResponse] = await Promise.all([apiFetch<Course[]>('/courses'), apiFetch<Department[]>('/departments')]);
@@ -71,7 +74,7 @@ export default function CoursesPage() {
         <p className="text-slate-500">Ders, sınav süresi ve öğretim elemanı bilgileri.</p>
       </header>
 
-      <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-7">
+      {canManage ? <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-7">
         <input required placeholder="Ders Kodu" className={inputCls} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} />
         <input required placeholder="Ders Adı" className={`${inputCls} md:col-span-2`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input placeholder="Öğretim Elemanı" className={inputCls} value={form.instructorName} onChange={(e) => setForm({ ...form, instructorName: e.target.value })} />
@@ -81,13 +84,13 @@ export default function CoursesPage() {
           {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
         </select>
         <button className="rounded-md bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">Ekle</button>
-      </form>
+      </form> : null}
 
       <DataTable
         columns={['Kod', 'Ad', 'Öğretim Elemanı', 'Bölüm', 'Öğrenci', 'Süre', 'Tür']}
         rows={courses.map((c) => [c.code, c.name, c.instructorName || '-', c.department || '-', c.studentCount, `${c.durationMinutes} dk`, c.examType])}
-        onEdit={startEdit}
-        onDelete={(i) => setDeleteTarget(courses[i])}
+        onEdit={canManage ? startEdit : undefined}
+        onDelete={canManage ? (i) => setDeleteTarget(courses[i]) : undefined}
       />
 
       {editTarget && (

@@ -20,6 +20,9 @@ router.get(
   asyncHandler(async (req, res) => {
     const batch = await prisma.importBatch.findUnique({ where: { id: req.params.id } });
     if (!batch) return res.status(404).json({ success: false, message: 'Import kaydı bulunamadı.' });
+    if (req.user.role !== 'ADMIN' && batch.entityType === 'classrooms') {
+      return res.status(403).json({ success: false, message: 'Bu işlem için yetkiniz yok.' });
+    }
     res.json({ success: true, data: batch.errors || [] });
   }),
 );
@@ -27,7 +30,8 @@ router.get(
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const data = await prisma.importBatch.findMany({ orderBy: { createdAt: 'desc' } });
+    const where = req.user.role === 'ADMIN' ? {} : { entityType: { in: ['students', 'courses', 'invigilators'] } };
+    const data = await prisma.importBatch.findMany({ where, orderBy: { createdAt: 'desc' } });
     res.json({ success: true, count: data.length, data });
   }),
 );

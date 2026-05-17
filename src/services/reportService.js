@@ -2,6 +2,7 @@ const path = require('path');
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 const prisma = require('../config/prisma');
+const { filterScenarioForUser } = require('../utils/scenarioAccess');
 const { sameDate } = require('../utils/time');
 const { activeSeatCapacity, getEffectiveCapacity } = require('./planning/roomAllocator');
 const { groupSpecialNeedSummary, specialNeedNote } = require('./planning/specialNeeds');
@@ -16,12 +17,12 @@ function assertScenarioExportable(scenario) {
   }
 }
 
-async function getScenarioReportData(scenarioId) {
+async function getScenarioReportData(scenarioId, user = null) {
   const scenario = await prisma.planningScenario.findUnique({
     where: { id: scenarioId },
     include: {
       period: true,
-      schedules: true,
+      schedules: { include: { exam: { include: { course: true } } } },
       roomSlots: { include: { classroom: { include: { seats: true } }, assignments: { include: { exam: { include: { course: true } } } } } },
       rooms: { include: { classroom: { include: { seats: true } }, roomSlot: true, exam: { include: { course: true } } } },
       seats: { include: { student: true, seat: true, classroom: true, exam: { include: { course: true } } } },
@@ -35,7 +36,13 @@ async function getScenarioReportData(scenarioId) {
     throw error;
   }
   assertScenarioExportable(scenario);
-  return scenario;
+  const scoped = user ? filterScenarioForUser(scenario, user) : scenario;
+  if (!scoped) {
+    const error = new Error('Planlama senaryosu bulunamadı.');
+    error.status = 404;
+    throw error;
+  }
+  return scoped;
 }
 
 function scheduleFor(scenario, exam) {
@@ -523,8 +530,8 @@ function buildScenarioWorkbookData(scenario, type = 'calendar') {
   return workbook;
 }
 
-async function buildScenarioWorkbook(scenarioId, type = 'calendar') {
-  const scenario = await getScenarioReportData(scenarioId);
+async function buildScenarioWorkbook(scenarioId, type = 'calendar', user = null) {
+  const scenario = await getScenarioReportData(scenarioId, user);
   return buildScenarioWorkbookData(scenario, type);
 }
 
@@ -983,13 +990,13 @@ function streamScenarioPdfData(scenario, res, type = 'calendar', options = {}) {
   doc.end();
 }
 
-async function streamScenarioPdf(scenarioId, res, type = 'calendar') {
-  const scenario = await getScenarioReportData(scenarioId);
+async function streamScenarioPdf(scenarioId, res, type = 'calendar', user = null) {
+  const scenario = await getScenarioReportData(scenarioId, user);
   streamScenarioPdfData(scenario, res, type);
 }
 
-async function streamScenarioExamPdf(scenarioId, examId, res) {
-  const scenario = await getScenarioReportData(scenarioId);
+async function streamScenarioExamPdf(scenarioId, examId, res, user = null) {
+  const scenario = await getScenarioReportData(scenarioId, user);
   streamScenarioPdfData(scenario, res, 'exam', { examId });
 }
 

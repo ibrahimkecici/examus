@@ -9,7 +9,7 @@ router.use(requireRole('ADMIN', 'DEPARTMENT_MANAGER'));
 router.get(
   '/scenarios/:id/calendar.xlsx',
   asyncHandler(async (req, res) => {
-    const workbook = await buildCalendarWorkbook(req.params.id);
+    const workbook = await buildScenarioWorkbook(req.params.id, 'calendar', req.user);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="examus-${req.params.id}.xlsx"`);
     await workbook.xlsx.write(res);
@@ -22,7 +22,7 @@ router.get(
   asyncHandler(async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="examus-calendar-${req.params.id}.pdf"`);
-    await streamPdf(req.params.id, res);
+    await streamScenarioPdf(req.params.id, res, 'calendar', req.user);
   }),
 );
 
@@ -31,7 +31,7 @@ router.get(
   asyncHandler(async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="examus-full-${req.params.id}.pdf"`);
-    await streamScenarioPdf(req.params.id, res, 'full');
+    await streamScenarioPdf(req.params.id, res, 'full', req.user);
   }),
 );
 
@@ -40,7 +40,7 @@ router.get(
   asyncHandler(async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="examus-classrooms-${req.params.id}.pdf"`);
-    await streamScenarioPdf(req.params.id, res, 'classrooms');
+    await streamScenarioPdf(req.params.id, res, 'classrooms', req.user);
   }),
 );
 
@@ -49,7 +49,7 @@ router.get(
   asyncHandler(async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="examus-students-${req.params.id}.pdf"`);
-    await streamScenarioPdf(req.params.id, res, 'students');
+    await streamScenarioPdf(req.params.id, res, 'students', req.user);
   }),
 );
 
@@ -58,7 +58,7 @@ router.get(
   asyncHandler(async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="examus-invigilators-${req.params.id}.pdf"`);
-    await streamScenarioPdf(req.params.id, res, 'invigilators');
+    await streamScenarioPdf(req.params.id, res, 'invigilators', req.user);
   }),
 );
 
@@ -67,12 +67,12 @@ router.get(
   asyncHandler(async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="examus-exam-${req.params.examId}-${req.params.id}.pdf"`);
-    await streamScenarioExamPdf(req.params.id, req.params.examId, res);
+    await streamScenarioExamPdf(req.params.id, req.params.examId, res, req.user);
   }),
 );
 
 router.get('/scenarios/:id/students.xlsx', asyncHandler(async (req, res) => {
-  const workbook = await buildScenarioWorkbook(req.params.id, 'students');
+  const workbook = await buildScenarioWorkbook(req.params.id, 'students', req.user);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="examus-students-${req.params.id}.xlsx"`);
   await workbook.xlsx.write(res);
@@ -80,7 +80,7 @@ router.get('/scenarios/:id/students.xlsx', asyncHandler(async (req, res) => {
 }));
 
 router.get('/scenarios/:id/classrooms.xlsx', asyncHandler(async (req, res) => {
-  const workbook = await buildScenarioWorkbook(req.params.id, 'classrooms');
+  const workbook = await buildScenarioWorkbook(req.params.id, 'classrooms', req.user);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="examus-classrooms-${req.params.id}.xlsx"`);
   await workbook.xlsx.write(res);
@@ -88,7 +88,7 @@ router.get('/scenarios/:id/classrooms.xlsx', asyncHandler(async (req, res) => {
 }));
 
 router.get('/scenarios/:id/invigilators.xlsx', asyncHandler(async (req, res) => {
-  const workbook = await buildScenarioWorkbook(req.params.id, 'invigilators');
+  const workbook = await buildScenarioWorkbook(req.params.id, 'invigilators', req.user);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="examus-invigilators-${req.params.id}.xlsx"`);
   await workbook.xlsx.write(res);

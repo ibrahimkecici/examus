@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import AccessDenied from '@/components/AccessDenied';
 import { apiFetch } from '@/lib/api';
@@ -9,16 +9,27 @@ import { canAccessPath, CurrentUser, getStoredUser, setStoredUser } from '@/lib/
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [user, setUser] = useState<CurrentUser | null>(null);
+  const router = useRouter();
+  const [user, setUser] = useState<CurrentUser | null>(() => getStoredUser());
+  const [loaded, setLoaded] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    const update = () => setUser(getStoredUser());
+    const update = () => {
+      setUser(getStoredUser());
+      setLoaded(true);
+    };
     update();
     window.addEventListener('examus_user_changed', update);
     return () => window.removeEventListener('examus_user_changed', update);
   }, []);
+
+  useEffect(() => {
+    if (loaded && !user && pathname !== '/login') {
+      router.replace('/login');
+    }
+  }, [loaded, pathname, router, user]);
 
   async function completePasswordSetup(event: React.FormEvent) {
     event.preventDefault();
@@ -38,6 +49,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   if (pathname === '/login') {
     return <main className="min-h-screen p-8"><div className="mx-auto max-w-7xl">{children}</div></main>;
+  }
+
+  if (!loaded || !user) {
+    return (
+      <main className="min-h-screen p-8">
+        <div className="mx-auto max-w-7xl text-sm text-slate-500">Oturum kontrol ediliyor...</div>
+      </main>
+    );
   }
 
   if (user?.mustChangePassword) {

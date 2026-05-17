@@ -18,7 +18,7 @@ const navItems = [
   { href: '/donemler', label: 'Dönemler', icon: '◫', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR'] },
   { href: '/sinavlar', label: 'Sınavlar', icon: '◷', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'] },
   { href: '/planlama', label: 'Planlama', icon: '⌁', roles: ['ADMIN', 'DEPARTMENT_MANAGER'] },
-  { href: '/raporlar', label: 'Raporlar', icon: '≡', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'] },
+  { href: '/raporlar', label: 'Raporlar', icon: '≡', roles: ['ADMIN', 'DEPARTMENT_MANAGER'] },
   { href: '/kullanicilar', label: 'Kullanıcılar', icon: '⊙', roles: ['ADMIN'] },
 ];
 
@@ -65,7 +65,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto">
-        {navItems.filter((item) => !user || item.roles.includes(user.role)).map((item) => {
+        {navItems.filter((item) => user && item.roles.includes(user.role)).map((item) => {
           const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
           return (
             <Link
