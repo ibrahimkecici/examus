@@ -8,10 +8,12 @@ const { importClassrooms, importCourses, importInvigilators, importStudents } = 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.post('/students', requireRole('ADMIN', 'DEPARTMENT_MANAGER'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importStudents(req.file, req) })));
-router.post('/courses', requireRole('ADMIN', 'DEPARTMENT_MANAGER'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importCourses(req.file, req) })));
+router.use(requireRole('ADMIN', 'DEPARTMENT_MANAGER'));
+
+router.post('/students', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importStudents(req.file, req) })));
+router.post('/courses', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importCourses(req.file, req) })));
 router.post('/classrooms', requireRole('ADMIN'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importClassrooms(req.file) })));
-router.post('/invigilators', requireRole('ADMIN', 'DEPARTMENT_MANAGER'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importInvigilators(req.file, req) })));
+router.post('/invigilators', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importInvigilators(req.file, req) })));
 
 router.get(
   '/:id/errors',

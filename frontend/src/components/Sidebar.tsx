@@ -1,15 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Modal from '@/components/Modal';
 import { apiFetch } from '@/lib/api';
-import { CurrentUser, getStoredUser, ROLE_LABELS } from '@/lib/auth';
+import { clearStoredAuth, CurrentUser, getStoredUser, ROLE_LABELS } from '@/lib/auth';
 
 const navItems = [
   { href: '/', label: 'Panel', icon: '▦', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'] },
-  { href: '/veri-yukleme', label: 'Veri Yükleme', icon: '⇧', roles: ['ADMIN'] },
+  { href: '/veri-yukleme', label: 'Veri Yükleme', icon: '⇧', roles: ['ADMIN', 'DEPARTMENT_MANAGER'] },
   { href: '/ogrenciler', label: 'Öğrenciler', icon: '◎', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'] },
   { href: '/dersler', label: 'Dersler', icon: '□', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'] },
   { href: '/derslikler', label: 'Derslikler', icon: '⌂', roles: ['ADMIN', 'DEPARTMENT_MANAGER', 'INSTRUCTOR'] },
@@ -24,6 +24,7 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [pwOpen, setPwOpen] = useState(false);
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '' });
   const [pwMsg, setPwMsg] = useState('');
@@ -46,6 +47,11 @@ export default function Sidebar() {
     } catch (err) {
       setPwMsg(err instanceof Error ? err.message : 'Hata oluştu.');
     }
+  }
+
+  function logout() {
+    clearStoredAuth();
+    router.replace('/login');
   }
 
   const inputCls = 'rounded-md border px-3 py-2 text-sm w-full dark:border-slate-700 dark:bg-slate-950';
@@ -84,9 +90,14 @@ export default function Sidebar() {
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-200">{user?.name || 'Kullanıcı'}</p>
             {user?.role ? <p className="truncate text-xs text-slate-500">{ROLE_LABELS[user.role]}</p> : null}
-            <button onClick={() => { setPwMsg(''); setPwOpen(true); }} className="text-xs text-blue-500 hover:underline">
-              Şifre Değiştir
-            </button>
+            <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+              <button onClick={() => { setPwMsg(''); setPwOpen(true); }} className="text-xs text-blue-500 hover:underline">
+                Şifre Değiştir
+              </button>
+              <button onClick={logout} className="text-xs text-red-500 hover:underline">
+                Çıkış Yap
+              </button>
+            </div>
           </div>
         </div>
       </div>

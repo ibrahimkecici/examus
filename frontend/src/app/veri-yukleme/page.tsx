@@ -5,6 +5,7 @@ import DataTable from '@/components/DataTable';
 import Modal from '@/components/Modal';
 import StatusPill from '@/components/StatusPill';
 import { apiFetch } from '@/lib/api';
+import { CurrentUser, getStoredUser } from '@/lib/auth';
 
 type Batch = { id: string; entityType: string; fileName?: string; status: string; totalRows: number; successRows: number; errorRows: number; createdAt: string };
 type ImportError = { row: number; field?: string; message: string };
@@ -15,7 +16,7 @@ const SCHEMAS: Record<string, { label: string; columns: { name: string; required
     columns: [
       { name: 'studentNo', required: true, note: 'veya "Öğrenci No"' },
       { name: 'fullName', required: true, note: 'veya "Ad Soyad"' },
-      { name: 'department', required: true, note: 'veya "Bölüm"' },
+      { name: 'department', required: true, note: 'Department kaydıyla eşleşir; admin yoksa oluşturur, koordinatörde kendi bölümü kullanılır' },
       { name: 'courses', note: 'virgülle ayrılmış ders kodları' },
     ],
   },
@@ -25,6 +26,7 @@ const SCHEMAS: Record<string, { label: string; columns: { name: string; required
       { name: 'code', required: true, note: 'veya "Ders Kodu"' },
       { name: 'name', required: true, note: 'veya "Ders Adı"' },
       { name: 'instructorName', note: 'veya "Öğretim Elemanı"' },
+      { name: 'department', note: 'Department kaydıyla eşleşir; koordinatörde kendi bölümü kullanılır' },
       { name: 'studentCount', note: 'veya "Öğrenci Sayısı"' },
       { name: 'durationMinutes', note: 'veya "Süre" (varsayılan: 120)' },
       { name: 'bookletTypes', note: 'veya "Kitapçıklar" — virgülle: A,B veya A,B,C,D' },
@@ -46,7 +48,7 @@ const SCHEMAS: Record<string, { label: string; columns: { name: string; required
       { name: 'firstName', required: true, note: 'veya "Ad"' },
       { name: 'lastName', required: true, note: 'veya "Soyad"' },
       { name: 'title', note: 'unvan' },
-      { name: 'department', note: 'bölüm' },
+      { name: 'department', note: 'Department kaydıyla eşleşir; koordinatörde kendi bölümü kullanılır' },
       { name: 'email' },
       { name: 'maxAssignments', note: 'varsayılan: 4' },
     ],
@@ -58,6 +60,7 @@ export default function ImportPage() {
   const [message, setMessage] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [errorBatch, setErrorBatch] = useState<{ id: string; fileName?: string; errors: ImportError[] } | null>(null);
+  const [user] = useState<CurrentUser | null>(() => getStoredUser());
 
   useEffect(() => {
     apiFetch<Batch[]>('/imports').then((response) => setBatches(response.data)).catch(console.error);
@@ -87,7 +90,7 @@ export default function ImportPage() {
       {message && <div className="rounded-md bg-blue-50 p-3 text-sm text-blue-700 dark:bg-blue-950 dark:text-blue-300">{message}</div>}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {Object.entries(SCHEMAS).map(([key, schema]) => (
+        {Object.entries(SCHEMAS).filter(([key]) => user?.role === 'ADMIN' || key !== 'classrooms').map(([key, schema]) => (
           <div key={key} className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between p-5">
               <div>

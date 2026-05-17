@@ -38,10 +38,18 @@ export function setStoredUser(user: CurrentUser) {
   window.dispatchEvent(new Event('examus_user_changed'));
 }
 
+export function clearStoredAuth() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem('examus_token');
+  window.localStorage.removeItem('examus_user');
+  window.dispatchEvent(new Event('examus_user_changed'));
+}
+
 export function canAccessPath(user: CurrentUser | null, pathname: string) {
   if (!user || pathname === '/login') return true;
   if (user.role === 'ADMIN') return true;
-  if (pathname.startsWith('/kullanicilar') || pathname.startsWith('/veri-yukleme')) return false;
+  if (pathname.startsWith('/kullanicilar')) return false;
+  if (pathname.startsWith('/veri-yukleme')) return user.role === 'DEPARTMENT_MANAGER';
   if (pathname.startsWith('/planlama')) return ['DEPARTMENT_MANAGER'].includes(user.role);
   if (pathname.startsWith('/raporlar')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'INVIGILATOR', 'STUDENT'].includes(user.role);
   if (pathname.startsWith('/ogrenciler')) return ['DEPARTMENT_MANAGER', 'INSTRUCTOR', 'STUDENT'].includes(user.role);
