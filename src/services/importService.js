@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { syncCourseStudentCounts } = require('./courseStatsService');
 const { normalizeDepartmentCode, resolveDepartment } = require('../utils/departmentResolver');
+const { writeAuditLog } = require('../utils/auditLog');
 
 function readRows(file) {
   if (!file) {
@@ -28,7 +29,7 @@ const IMPORT_SCHEMAS = {
   },
   courses: {
     required: [['code', 'dersKodu', 'Ders Kodu'], ['name', 'dersAd', 'Ders Adı']],
-    known: ['code', 'dersKodu', 'Ders Kodu', 'name', 'dersAd', 'Ders Adı', 'instructorName', 'ogretimElemani', 'Öğretim Elemanı', 'department', 'bolum', 'Bölüm', 'studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı', 'durationMinutes', 'sure', 'Süre', 'requiredRoomType', 'roomType', 'derslikTipi', 'Derslik Tipi', 'requiredFeatures', 'features', 'ozellikler', 'Özellikler', 'specialRules', 'kurallar', 'Kurallar', 'bookletTypes', 'kitapciklar', 'Kitapçıklar', 'kitapçıklar'],
+    known: ['code', 'dersKodu', 'Ders Kodu', 'name', 'dersAd', 'Ders Adı', 'instructorEmail', 'instructorStaffNo', 'instructorName', 'ogretimElemani', 'Öğretim Elemanı', 'department', 'bolum', 'Bölüm', 'studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı', 'durationMinutes', 'sure', 'Süre', 'requiredRoomType', 'roomType', 'derslikTipi', 'Derslik Tipi', 'requiredFeatures', 'features', 'ozellikler', 'Özellikler', 'specialRules', 'kurallar', 'Kurallar', 'bookletTypes', 'kitapciklar', 'Kitapçıklar', 'kitapçıklar'],
   },
   classrooms: {
     required: [['code', 'derslikKodu', 'Sınıf Kodu'], ['capacity', 'kapasite', 'Kapasite']],
@@ -51,6 +52,49 @@ function hasAnyColumn(columns, keys) {
   return keys.some((key) => columns.includes(key));
 }
 
+function parseJsonField(raw, fallback = {}) {
+  if (!raw) return fallback;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return fallback;
+  }
+}
+
+async function findInstructorForRow(row) {
+  const email = value(row, ['instructorEmail']);
+  const staffNo = value(row, ['instructorStaffNo']);
+  const instructorName = value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']);
+  if (email) {
+    const user = await prisma.user.findFirst({ where: { email, role: 'INSTRUCTOR' }, select: { id: true, name: true, email: true, role: true } });
+    return { status: user ? 'matched' : 'unmatched', user, source: 'instructorEmail', value: email, instructorName };
+  }
+  if (staffNo) {
+    const user = await prisma.user.findFirst({
+      where: {
+        role: 'INSTRUCTOR',
+        OR: [
+          { email: staffNo },
+          { email: { startsWith: `${staffNo}@` } },
+        ],
+      },
+      select: { id: true, name: true, email: true, role: true },
+    });
+    return { status: user ? 'matched' : 'unmatched', user, source: 'instructorStaffNo', value: staffNo, instructorName };
+  }
+  if (instructorName) {
+    const matches = await prisma.user.findMany({
+      where: { role: 'INSTRUCTOR', name: { contains: instructorName, mode: 'insensitive' } },
+      select: { id: true, name: true, email: true, role: true },
+      take: 5,
+    });
+    if (matches.length === 1) return { status: 'matched', user: matches[0], source: 'instructorName', value: instructorName, instructorName };
+    return { status: matches.length > 1 ? 'ambiguous' : 'unmatched', matches, source: 'instructorName', value: instructorName, instructorName };
+  }
+  return { status: 'missing', source: 'empty', value: '', instructorName: '' };
+}
+
 async function previewImport(type, file, req) {
   const schema = IMPORT_SCHEMAS[type];
   if (!schema) {
@@ -70,6 +114,8 @@ async function previewImport(type, file, req) {
     .map((aliases) => aliases[0]);
   const unknownColumns = columns.filter((column) => !schema.known.includes(column));
   const rowErrors = [];
+  const instructorMatches = [];
+  const unmatchedInstructors = [];
   let creatableRows = 0;
   let updateRows = 0;
   let createdUserAccounts = 0;
@@ -111,6 +157,20 @@ async function previewImport(type, file, req) {
       const existing = await prisma.course.findUnique({ where: { code } });
       if (existing) updateRows += 1;
       else creatableRows += 1;
+      const match = await findInstructorForRow(row);
+      const item = {
+        row: rowNumber,
+        courseCode: code,
+        instructorName: match.instructorName || match.value || '',
+        source: match.source,
+        value: match.value,
+        status: match.status,
+        user: match.user || null,
+        matches: match.matches || [],
+        existingInstructorId: existing?.instructorId || null,
+      };
+      if (match.status === 'matched') instructorMatches.push(item);
+      else unmatchedInstructors.push(item);
     } else if (type === 'classrooms') {
       const code = value(row, ['code', 'derslikKodu', 'Sınıf Kodu']);
       const existing = await prisma.classroom.findUnique({ where: { code } });
@@ -140,7 +200,70 @@ async function previewImport(type, file, req) {
     departments: [...departments.values()],
     rowErrors: rowErrors.slice(0, 50),
     departmentLockedToUser: req.user.role === 'DEPARTMENT_MANAGER',
+    instructorMatches,
+    unmatchedInstructors,
+    requiresInstructorMapping: type === 'courses' && unmatchedInstructors.some((item) => !item.existingInstructorId),
   };
+}
+
+function courseInstructorColumns(row) {
+  return {
+    instructorName: value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']) || null,
+    instructorEmail: value(row, ['instructorEmail']) || null,
+    instructorStaffNo: value(row, ['instructorStaffNo']) || null,
+  };
+}
+
+async function resolveInstructorForCourse(row, code, existingCourse, mappings) {
+  if (mappings[code]) {
+    const user = await prisma.user.findFirst({ where: { id: mappings[code], role: 'INSTRUCTOR' } });
+    if (!user) {
+      const error = new Error(`${code} için seçilen ders sorumlusu INSTRUCTOR kullanıcısı değil.`);
+      error.status = 400;
+      throw error;
+    }
+    return user;
+  }
+  const match = await findInstructorForRow(row);
+  if (match.user) return match.user;
+  if (existingCourse?.instructorId && !courseInstructorColumns(row).instructorName && !courseInstructorColumns(row).instructorEmail && !courseInstructorColumns(row).instructorStaffNo) {
+    return prisma.user.findUnique({ where: { id: existingCourse.instructorId } });
+  }
+  const error = new Error(`${code} dersi için ders sorumlusu kullanıcı hesabı eşleştirilmelidir.`);
+  error.status = 400;
+  throw error;
+}
+
+function buildTemplateWorkbookBuffer(type) {
+  const schema = IMPORT_SCHEMAS[type];
+  if (!schema) {
+    const error = new Error('Geçersiz import tipi.');
+    error.status = 400;
+    throw error;
+  }
+  const preferredColumns = {
+    students: ['studentNo', 'fullName', 'department', 'courses', 'specialNeeds'],
+    courses: ['code', 'name', 'instructorEmail', 'instructorStaffNo', 'instructorName', 'department', 'studentCount', 'durationMinutes', 'bookletTypes'],
+    classrooms: ['code', 'name', 'capacity', 'examCapacity', 'roomType', 'features', 'building', 'floor'],
+    invigilators: ['staffNo', 'firstName', 'lastName', 'title', 'department', 'email', 'maxAssignments'],
+  }[type];
+  const examples = {
+    students: ['20240001', 'Ayşe Yılmaz', 'Bilgisayar Mühendisliği', 'BLM101,BLM103', 'Ön sıra'],
+    courses: ['BLM101', 'Programlama I', 'ayse.hoca@example.edu', '', 'Dr. Ayşe Demir', 'Bilgisayar Mühendisliği', 60, 120, 'A,B'],
+    classrooms: ['A101', 'A Blok 101', 90, 45, 'Amfi', 'projeksiyon;klima', 'A Blok', '1'],
+    invigilators: ['GZ001', 'Zeynep', 'Kaya', 'Arş. Gör.', 'Bilgisayar Mühendisliği', 'zeynep.kaya@example.edu', 4],
+  }[type];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([preferredColumns, examples]), 'Veri');
+  const descriptionRows = [
+    ['Kolon', 'Zorunlu', 'Açıklama/Alias'],
+    ...schema.required.map((aliases) => [aliases[0], 'Evet', aliases.join(', ')]),
+    ...preferredColumns
+      .filter((column) => !schema.required.some((aliases) => aliases[0] === column))
+      .map((column) => [column, 'Hayır', schema.known.filter((known) => known === column).join(', ') || column]),
+  ];
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(descriptionRows), 'Açıklamalar');
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 }
 
 function numberValue(row, keys, fallback = null) {
@@ -261,11 +384,18 @@ async function importStudents(file, req) {
       errors,
     },
   });
+  await writeAuditLog(req, {
+    action: 'IMPORT_STUDENTS',
+    entity: 'ImportBatch',
+    entityId: batchResult.id,
+    metadata: { successRows, errorRows: errors.length, createdRows, updatedRows, createdUserAccounts },
+  });
   return { ...batchResult, createdRows, updatedRows, createdUserAccounts };
 }
 
 async function importCourses(file, req) {
   const rows = readRows(file);
+  const instructorMappings = parseJsonField(req.body?.instructorMappings, {});
   const errors = [];
   let successRows = 0;
   let createdRows = 0;
@@ -283,9 +413,17 @@ async function importCourses(file, req) {
     const departmentName = value(row, ['department', 'bolum', 'Bölüm']) || null;
     const department = (departmentName || req?.user?.role === 'DEPARTMENT_MANAGER') ? await resolveDepartment(prisma, departmentName, req) : null;
     const existingCourse = await prisma.course.findUnique({ where: { code } });
+    let instructor = null;
+    try {
+      instructor = await resolveInstructorForCourse(row, code, existingCourse, instructorMappings);
+    } catch (error) {
+      errors.push({ row: index + 2, field: 'instructorId', message: error.message });
+      continue;
+    }
     const courseData = {
       name,
-      instructorName: value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']) || null,
+      instructorName: instructor?.name || value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']) || null,
+      instructorId: instructor?.id || null,
       department: department?.name || departmentName,
       departmentId: department?.id || null,
       studentCount: Number(value(row, ['studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı'])) || 0,
@@ -306,10 +444,16 @@ async function importCourses(file, req) {
   }
 
   const batchResult = await prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
+  await writeAuditLog(req, {
+    action: 'IMPORT_COURSES',
+    entity: 'ImportBatch',
+    entityId: batchResult.id,
+    metadata: { successRows, errorRows: errors.length, createdRows, updatedRows, instructorMappingCount: Object.keys(instructorMappings).length },
+  });
   return { ...batchResult, createdRows, updatedRows, createdUserAccounts: 0 };
 }
 
-async function importClassrooms(file) {
+async function importClassrooms(file, req = null) {
   const rows = readRows(file);
   const errors = [];
   let successRows = 0;
@@ -370,6 +514,12 @@ async function importClassrooms(file) {
   }
 
   const batchResult = await prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
+  await writeAuditLog(req, {
+    action: 'IMPORT_CLASSROOMS',
+    entity: 'ImportBatch',
+    entityId: batchResult.id,
+    metadata: { successRows, errorRows: errors.length, createdRows, updatedRows },
+  });
   return { ...batchResult, createdRows, updatedRows, createdUserAccounts: 0 };
 }
 
@@ -449,7 +599,13 @@ async function importInvigilators(file, req) {
   }
 
   const batchResult = await prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
+  await writeAuditLog(req, {
+    action: 'IMPORT_INVIGILATORS',
+    entity: 'ImportBatch',
+    entityId: batchResult.id,
+    metadata: { successRows, errorRows: errors.length, createdRows, updatedRows, createdUserAccounts },
+  });
   return { ...batchResult, createdRows, updatedRows, createdUserAccounts };
 }
 
-module.exports = { importClassrooms, importCourses, importInvigilators, importStudents, previewImport };
+module.exports = { buildTemplateWorkbookBuffer, importClassrooms, importCourses, importInvigilators, importStudents, previewImport };

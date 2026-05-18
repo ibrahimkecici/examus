@@ -95,12 +95,16 @@ async function validateSeatAssignmentChange(assignmentId, patch) {
 async function validateRoomAssignmentChange(assignmentId, patch) {
   const existing = await prisma.examRoomAssignment.findUnique({
     where: { id: assignmentId },
-    include: { exam: true, classroom: true, roomSlot: true },
+    include: { exam: true, classroom: true, roomSlot: { include: { assignments: true } } },
   });
   if (!existing) return validationResult([{ code: 'ROOM_ASSIGNMENT_NOT_FOUND', message: 'Salon ataması bulunamadı.' }]);
   const classroomId = patch.classroomId || existing.classroomId;
   const slot = existing.roomSlot;
   const hard = [];
+  const seatMoves = [];
+  if (patch.classroomId && patch.classroomId !== existing.classroomId && slot?.assignments?.length > 1) {
+    hard.push({ code: 'MIXED_ROOM_MOVE_BLOCKED', message: 'Karma/çoklu salon slotu tek sınav üzerinden taşınamaz.' });
+  }
   if (slot) {
     const conflict = await prisma.examRoomSlot.findFirst({
       where: {
@@ -120,7 +124,31 @@ async function validateRoomAssignmentChange(assignmentId, patch) {
   else if ((capacity.examCapacity || capacity.capacity) < existing.assignedCount) {
     hard.push({ code: 'ROOM_CAPACITY_EXCEEDED', message: 'Seçilen salonun sınav kapasitesi atanmış öğrenci sayısını karşılamıyor.' });
   }
-  return validationResult(hard, [], { assignedCount: existing.assignedCount });
+
+  if (patch.classroomId && patch.classroomId !== existing.classroomId) {
+    const assignments = await prisma.seatAssignment.findMany({
+      where: { scenarioId: existing.scenarioId, examId: existing.examId, classroomId: existing.classroomId },
+      include: { seat: true },
+    });
+    const targetSeats = await prisma.seat.findMany({ where: { classroomId, status: 'AKTIF' } });
+    const targetByLabel = new Map(targetSeats.map((seat) => [seat.label, seat]));
+    const usedTargetSeatIds = new Set();
+    for (const assignment of assignments) {
+      const target = targetByLabel.get(assignment.seat.label);
+      if (!target) {
+        hard.push({ code: 'TARGET_ROOM_SEAT_LABEL_MISSING', message: `Seçilen salonda ${assignment.seat.label} koltuğu bulunamadı.` });
+        continue;
+      }
+      if (usedTargetSeatIds.has(target.id)) {
+        hard.push({ code: 'TARGET_ROOM_SEAT_DUPLICATE', message: `Seçilen salonda ${target.label} koltuğu birden fazla atamaya denk geldi.` });
+        continue;
+      }
+      usedTargetSeatIds.add(target.id);
+      seatMoves.push({ assignmentId: assignment.id, seatId: target.id, fromSeat: assignment.seat.label, toSeat: target.label });
+    }
+  }
+
+  return validationResult(hard, [], { assignedCount: existing.assignedCount, seatMoves });
 }
 
 async function validateInvigilatorAssignmentChange(assignmentId, patch) {

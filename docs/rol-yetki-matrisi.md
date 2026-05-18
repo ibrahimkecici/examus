@@ -76,6 +76,28 @@ Sadece admin tarafından yapılabilen işlemler:
 
 Bölüm koordinatörü planlama sonuçlarını görüntüleyebilir ve rapor alabilir, fakat planlama motorunu çalıştıramaz veya onaylayamaz.
 
+## Manuel Düzenleme ve Plan Kalitesi
+
+Planlama detay ekranında yetkili roller için kontrollü manuel düzenleme akışları bulunur:
+
+- Sınav zamanı değiştirme: `ADMIN`, `DEPARTMENT_MANAGER` ve ilgili `INSTRUCTOR`.
+- Salon değiştirme: `ADMIN` ve `DEPARTMENT_MANAGER`.
+- Koltuk değiştirme/kilitleme: `ADMIN` ve `DEPARTMENT_MANAGER`.
+- Gözetmen değiştirme: `ADMIN` ve `DEPARTMENT_MANAGER`.
+
+Her manuel işlem backend validasyonundan geçer. Hard ihlal varsa kayıt yapılmaz ve UI’da kırmızı validasyon mesajı gösterilir. Soft uyarılar kayıt engellemez, ancak kullanıcıya açıklanır.
+
+Salon değiştirme yalnızca tek sınavlı salon-slot için açıktır. Karma/çoklu salon slotlarında tek sınav üzerinden salon taşıma kilitlidir. Hedef salonda mevcut koltuk etiketleri karşılanamıyorsa değişiklik reddedilir.
+
+Plan kalitesi ekranı mevcut senaryoyu aynı dönemdeki önceki tamamlanmış/onaylı senaryo ile karşılaştırır:
+
+- Skor
+- Fiziksel salon doluluğu
+- Boş kapasite
+- Gözetmen yük farkı
+- Öğrenci günlük yükü
+- Ardışık sınav yükü
+
 ## Veri Yükleme
 
 Veri yükleme ekranı `ADMIN` ve `DEPARTMENT_MANAGER` rollerine açıktır.
@@ -93,8 +115,36 @@ Import sırasında `department` kolonu `Department` kaydıyla eşleştirilir.
 - Bölüm koordinatörü için kayıtlar kendi `departmentId` kapsamına bağlanır.
 - Öğrenci importunda bağlı kullanıcı hesabı yoksa otomatik öğrenci kullanıcısı oluşturulur.
 - Gözetmen importunda bağlı kullanıcı hesabı yoksa otomatik gözetmen kullanıcısı oluşturulur.
+- Ders importunda ders sorumlusu otomatik kullanıcı olarak oluşturulmaz. Sorumlu kişi `User(role=INSTRUCTOR)` hesabı olmalıdır.
+- Ders import şablonu `instructorEmail`, `instructorStaffNo` ve `instructorName` kolonlarını içerir. Öncelik e-posta, sonra personel/sicil no, sonra ad eşleşmesidir.
+- Eşleşmeyen veya birden fazla olası eşleşme bulunan derslerde önizleme ekranında manuel `Ders Sorumlusu Seç` alanı gösterilir; zorunlu eşleşmeler tamamlanmadan import başlatılamaz.
 - Import öncesi önizleme yapılır; eksik/tanınmayan kolonlar, department eşleşmeleri, yeni/güncellenecek kayıtlar ve otomatik oluşacak hesap sayısı gösterilir.
-- Veri yükleme ekranında her import tipi için CSV şablonu indirilebilir.
+- Veri yükleme ekranında her import tipi için varsayılan şablon XLSX formatındadır. Şablonlarda `Veri` ve `Açıklamalar` sayfaları bulunur.
+
+## Ders Sorumlusu ve Gözetmen Ayrımı
+
+`INSTRUCTOR` dersin akademik sorumlusudur. `INVIGILATOR` sınav salonundaki görevli gözetmendir. Bu iki rol import, yetkilendirme, dashboard ve raporlarda ayrı kabul edilir.
+
+Ders sorumluluğunun tek güvenilir kaynağı:
+
+- `Course.instructorId -> User(id)`
+- İlgili kullanıcının rolü `INSTRUCTOR` olmalıdır.
+
+`Course.instructorName` geçiş uyumluluğu ve görüntüleme için tutulur. Yetki kapsamı, dashboard, sınav detayları ve raporlar `instructorId` üzerinden çalışır.
+
+Ders sorumlusu için kapsam:
+
+- Sadece `Course.instructorId = currentUser.id` olan dersleri görür.
+- Bu derslerin sınav, salon, öğrenci yerleşimi ve rapor özetlerini görür.
+- Gözetmen profili yoksa gözetmen görev ekranı kapsamına girmez.
+
+Gözetmen için kapsam:
+
+- Sadece `Invigilator.userId = currentUser.id` profiline bağlı görevleri görür.
+- Görevli olduğu salonların oturma grid’i ve kapı listesini görebilir.
+- Ders sorumlusu olmadığı derslerin akademik yönetim verilerini görmez.
+
+Bu fazda çoklu rol modeli yoktur. Aynı gerçek kişi hem ders sorumlusu hem gözetmen olarak kullanılacaksa sistemde ana rolü seçilmelidir; çoklu rol sonraki fazda ayrı ele alınacaktır.
 
 ## Öğrenci Hesapları
 
@@ -138,8 +188,11 @@ Başlıca uygulama noktaları:
 - `src/utils/accessControl.js`: rol etiketleri, geçerli roller, resource scope ve yazma yetkileri
 - `src/utils/crudRouter.js`: scope-aware CRUD filtreleri
 - `src/routes/planningRoutes.js`: admin-only planlama aksiyonları
+- `src/routes/manualEditRoutes.js`: validasyonlu manuel düzenleme endpointleri ve audit kayıtları
 - `src/routes/importRoutes.js`: import rol ayrımı
 - `src/routes/userRoutes.js`: admin-only kullanıcı yönetimi ve öğrenci hesap üretimi
+- `src/services/importService.js`: XLSX şablonları, import preview, ders sorumlusu eşleştirme ve otomatik öğrenci/gözetmen hesap üretimi
+- `src/utils/auditLog.js`: import ve operasyon aksiyonları için toleranslı audit log yazımı
 - `src/services/operationService.js`: rol bazlı dashboard ve sınav operasyon verisi
 - `src/services/manualValidationService.js`: manuel düzenleme hard constraint validasyonları
 - `frontend/src/lib/auth.ts`: frontend rol etiketleri, menü ve ekran erişim yardımcıları

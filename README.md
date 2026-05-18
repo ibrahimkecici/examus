@@ -9,12 +9,13 @@ Bu sürüm, `examus_gereksinim_dokumani.md` içindeki tam v1 hedeflerine göre E
 - Rol bazlı kullanıcı altyapısı ve JWT kimlik doğrulama
 - Öğrenci, ders, derslik, gözetmen, sınav ve sınav dönemi yönetimi
 - CSV/XLSX veri içe aktarma
-- Import önizleme, CSV şablonları ve otomatik öğrenci/gözetmen hesap üretimi
+- Import önizleme, XLSX şablonları ve otomatik öğrenci/gözetmen hesap üretimi
 - Sınav dönemi bazlı planlama senaryoları
 - Kapasite, öğrenci çakışması, salon çakışması ve gözetmen çakışması kontrolleri
 - Otomatik salon, sıra ve gözetmen atama
 - Manuel sınav zamanı ve oturma düzeni müdahalesi için endpointler
 - Manuel düzenleme sonrası hard constraint validasyonu
+- Plan kalitesi karşılaştırması ve validasyonlu manuel düzenleme UI’ı
 - LLM destekli AI önerileri ve heuristic fallback
 - PDF/Excel rapor çıktıları
 - Rol bazlı dashboard, operasyon detayları ve filtreli raporlar
@@ -84,6 +85,8 @@ JWT_SECRET="change-me"
 AI_PROVIDER="heuristic"
 AI_API_KEY=""
 AI_MODEL=""
+AI_BASE_URL="http://127.0.0.1:1234/v1"
+AI_TIMEOUT_MS=30000
 PORT=5001
 ```
 
@@ -95,7 +98,17 @@ AI_API_KEY="..."
 AI_MODEL="gpt-4o-mini"
 ```
 
-AI anahtarı tanımlanmadığında sistem heuristic öneri üretir.
+Lokal LM Studio ile çalıştırmak için LM Studio içindeki OpenAI-compatible server’ı başlatın ve örneğin:
+
+```bash
+AI_PROVIDER="lmstudio"
+AI_MODEL="nemotron-3-nano-4b"
+AI_BASE_URL="http://127.0.0.1:1234/v1"
+AI_API_KEY=""
+AI_TIMEOUT_MS=30000
+```
+
+OpenAI anahtarı tanımlanmadığında veya LM Studio endpoint’i erişilemediğinde sistem hata vermeden heuristic öneri üretir. AI çıktısı planı otomatik değiştirmez; risk, öneri ve manuel kontrol listesi olarak saklanır.
 
 ## CP-SAT Optimizasyon
 
@@ -172,13 +185,17 @@ http://localhost:3000
 
 Öğrenci ve gözetmen importları bağlı kullanıcı hesabını otomatik oluşturur. İlk şifre `12345678` olarak hash’lenir ve kullanıcı ilk girişte yeni şifre belirlemek zorundadır.
 
+Ders sorumlusu ayrı bir kullanıcı rolüdür. Ders kayıtlarında güvenilir kapsam `Course.instructorId -> User(role=INSTRUCTOR)` ilişkisidir; eski `instructorName` alanı yalnızca görüntüleme/geçiş uyumluluğu için korunur.
+
 ## Veri Yükleme
 
-Veri yükleme ekranında her import tipi için CSV şablonu indirilebilir. Dosya önce “Önizle” akışından geçirilir:
+Veri yükleme ekranında her import tipi için XLSX şablonu indirilebilir. Şablonlar `Veri` ve `Açıklamalar` sayfalarını içerir. Dosya önce “Önizle” akışından geçirilir:
 
 - Eksik zorunlu kolonlar ve tanınmayan kolonlar gösterilir.
 - Department eşleşmeleri listelenir; bölüm koordinatörü importu kendi bölümüne sabitlenir.
 - Yeni/güncellenecek kayıt sayısı ve otomatik oluşturulacak öğrenci/gözetmen hesabı sayısı gösterilir.
+- Ders importunda `instructorEmail`, `instructorStaffNo` veya `instructorName` ile `INSTRUCTOR` kullanıcısı eşleştirilir.
+- Eşleşmeyen veya belirsiz ders sorumluları önizleme ekranında manuel seçilmeden ders importu başlatılamaz.
 - Hatalı satır varsa import başlatılmaz.
 
 ## Rol Bazlı Kullanım
@@ -192,6 +209,12 @@ Beş rol desteklenir: `ADMIN`, `DEPARTMENT_MANAGER`, `INSTRUCTOR`, `INVIGILATOR`
 - Öğrenci kendi sınavlarını, salonunu, koltuğunu ve kitapçık bilgisini görür.
 
 Detaylı matris için `docs/rol-yetki-matrisi.md` dosyasına bakın.
+
+## Manuel Operasyon
+
+Planlama detay ekranında yetkili kullanıcılar sınav zamanı, salon, gözetmen ve koltuk/kilit değişikliklerini backend validasyonuyla kaydeder. Hard constraint ihlali varsa kayıt yapılmaz; validasyon sonucu ekranda gösterilir. Karma salon slotları tek sınav üzerinden taşınamaz.
+
+Özet ekranı, aynı sınav dönemindeki önceki tamamlanmış/onaylı senaryoya göre plan kalite farkını gösterir.
 
 ## Ana API Grupları
 
@@ -208,6 +231,7 @@ Detaylı matris için `docs/rol-yetki-matrisi.md` dosyasına bakın.
 - `GET /api/exams/:id/operations`
 - `/api/exam-periods`
 - `/api/imports`
+- `GET /api/imports/templates/:type.xlsx`
 - `POST /api/imports/:type/preview`
 - `/api/planning/scenarios`
 - `/api/ai/scenarios/:id/insights`

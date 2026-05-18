@@ -5,11 +5,10 @@ const asyncHandler = require('../utils/asyncHandler');
 const { requireRole } = require('../middleware/auth');
 const { assertValidRole } = require('../utils/accessControl');
 const { resolveDepartment } = require('../utils/departmentResolver');
+const { writeAuditLog } = require('../utils/auditLog');
 
 const router = express.Router();
 const STUDENT_DEFAULT_PASSWORD = '12345678';
-
-router.use(requireRole('ADMIN'));
 
 function splitName(body) {
   const firstName = body.firstName || '';
@@ -24,9 +23,9 @@ async function userPayload(body, existing = null) {
     name: splitName(body) || existing?.name,
     email: body.email || existing?.email,
     role,
-    department: body.department || null,
-    departmentId: body.departmentId || null,
-    mustChangePassword: body.mustChangePassword === undefined ? false : Boolean(body.mustChangePassword),
+    department: body.department ?? existing?.department ?? null,
+    departmentId: body.departmentId ?? existing?.departmentId ?? null,
+    mustChangePassword: body.mustChangePassword === undefined ? (existing?.mustChangePassword ?? false) : Boolean(body.mustChangePassword),
   };
 
   if (body.departmentId) {
@@ -63,14 +62,23 @@ async function userPayload(body, existing = null) {
 
 router.get(
   '/',
+  requireRole('ADMIN', 'DEPARTMENT_MANAGER'),
   asyncHandler(async (req, res) => {
+    if (req.query.role) assertValidRole(String(req.query.role));
+    const where = {
+      ...(req.query.role ? { role: String(req.query.role) } : {}),
+      ...(req.user.role === 'DEPARTMENT_MANAGER' ? { departmentId: req.user.departmentId || '__forbidden__' } : {}),
+    };
     const data = await prisma.user.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       select: { id: true, name: true, email: true, role: true, department: true, departmentId: true, mustChangePassword: true, departmentRef: true, studentProfile: true, invigilatorProfile: true, createdAt: true, updatedAt: true },
     });
     res.json({ success: true, count: data.length, data });
   }),
 );
+
+router.use(requireRole('ADMIN'));
 
 router.post(
   '/',
@@ -83,6 +91,7 @@ router.post(
     if (req.body.role === 'STUDENT' && req.body.studentId) {
       await prisma.student.update({ where: { id: req.body.studentId }, data: { userId: data.id } });
     }
+    await writeAuditLog(req, { action: 'USER_CREATE', entity: 'User', entityId: data.id, metadata: { role: data.role, departmentId: data.departmentId } });
     res.status(201).json({ success: true, data });
   }),
 );
@@ -103,6 +112,12 @@ router.put(
     if (req.body.role === 'STUDENT' && req.body.studentId) {
       await prisma.student.update({ where: { id: req.body.studentId }, data: { userId: data.id } });
     }
+    await writeAuditLog(req, {
+      action: existing.role !== data.role ? 'USER_ROLE_CHANGE' : 'USER_UPDATE',
+      entity: 'User',
+      entityId: data.id,
+      metadata: { previousRole: existing.role, role: data.role, departmentId: data.departmentId },
+    });
     res.json({ success: true, data });
   }),
 );

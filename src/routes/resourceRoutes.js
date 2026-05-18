@@ -85,11 +85,24 @@ async function normalizeInvigilator(body, req) {
 }
 
 async function normalizeCourse(body, req) {
+  const hasInstructorName = body.instructorName !== undefined || body.sorumluOgretimUyesi !== undefined;
+  let instructorName = hasInstructorName ? (body.instructorName || body.sorumluOgretimUyesi || null) : undefined;
+  let instructorId = body.instructorId === undefined ? undefined : (body.instructorId || null);
+  if (body.instructorId) {
+    const instructor = await prisma.user.findFirst({ where: { id: body.instructorId, role: 'INSTRUCTOR' } });
+    if (!instructor) {
+      const error = new Error('Ders sorumlusu INSTRUCTOR rolünde bir kullanıcı olmalıdır.');
+      error.status = 400;
+      throw error;
+    }
+    instructorName = instructor.name;
+    instructorId = instructor.id;
+  }
   return withDepartment(stripUndefined({
     code: body.code || body.dersKodu,
     name: body.name || body.dersAd,
-    instructorName: body.instructorName || body.sorumluOgretimUyesi || null,
-    instructorId: body.instructorId || null,
+    instructorName,
+    instructorId,
     department: body.department || body.bolum || null,
     studentCount: Number(body.studentCount || body.ogrenciSayisi || 0),
     durationMinutes: Number(body.durationMinutes || body.sure || 120),

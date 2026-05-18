@@ -3,12 +3,22 @@ const multer = require('multer');
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const { requireRole } = require('../middleware/auth');
-const { importClassrooms, importCourses, importInvigilators, importStudents, previewImport } = require('../services/importService');
+const { buildTemplateWorkbookBuffer, importClassrooms, importCourses, importInvigilators, importStudents, previewImport } = require('../services/importService');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(requireRole('ADMIN', 'DEPARTMENT_MANAGER'));
+
+router.get('/templates/:type.xlsx', asyncHandler(async (req, res) => {
+  if (req.params.type === 'classrooms' && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ success: false, message: 'Bu işlem için yetkiniz yok.' });
+  }
+  const buffer = buildTemplateWorkbookBuffer(req.params.type);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="examus-${req.params.type}-template.xlsx"`);
+  res.send(buffer);
+}));
 
 router.post('/:type/preview', upload.single('file'), asyncHandler(async (req, res) => {
   const data = await previewImport(req.params.type, req.file, req);
@@ -17,7 +27,7 @@ router.post('/:type/preview', upload.single('file'), asyncHandler(async (req, re
 
 router.post('/students', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importStudents(req.file, req) })));
 router.post('/courses', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importCourses(req.file, req) })));
-router.post('/classrooms', requireRole('ADMIN'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importClassrooms(req.file) })));
+router.post('/classrooms', requireRole('ADMIN'), upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importClassrooms(req.file, req) })));
 router.post('/invigilators', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importInvigilators(req.file, req) })));
 
 router.get(

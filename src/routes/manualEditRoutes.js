@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const { requireRole } = require('../middleware/auth');
+const { writeAuditLog } = require('../utils/auditLog');
 const {
   validateExamScheduleChange,
   validateInvigilatorAssignmentChange,
@@ -35,6 +36,7 @@ router.patch(
       },
       include: { course: true },
     });
+    await writeAuditLog(req, { action: 'MANUAL_EXAM_SCHEDULE_UPDATE', entity: 'Exam', entityId: req.params.id, metadata: { patch: req.body, validation } });
     res.json({ success: true, data, validation });
   }),
 );
@@ -62,6 +64,7 @@ router.patch(
       data: { seatId: req.body.seatId, locked: req.body.locked === undefined ? undefined : Boolean(req.body.locked) },
       include: { student: true, seat: true, exam: { include: { course: true } } },
     });
+    await writeAuditLog(req, { action: 'MANUAL_SEAT_ASSIGNMENT_UPDATE', entity: 'SeatAssignment', entityId: req.params.id, metadata: { patch: req.body, validation } });
     res.json({ success: true, data, validation });
   }),
 );
@@ -80,14 +83,24 @@ router.patch(
     }
     const validation = await validateRoomAssignmentChange(req.params.id, req.body);
     if (!validation.ok) return res.status(409).json({ success: false, message: 'Hard constraint ihlali nedeniyle değişiklik kaydedilmedi.', validation });
-    const data = await prisma.examRoomAssignment.update({
-      where: { id: req.params.id },
-      data: {
-        classroomId: req.body.classroomId || undefined,
-        assignedCount: req.body.assignedCount === undefined ? undefined : Number(req.body.assignedCount),
-      },
-      include: { classroom: true, exam: { include: { course: true } } },
+    const data = await prisma.$transaction(async (tx) => {
+      const updated = await tx.examRoomAssignment.update({
+        where: { id: req.params.id },
+        data: {
+          classroomId: req.body.classroomId || undefined,
+          assignedCount: req.body.assignedCount === undefined ? undefined : Number(req.body.assignedCount),
+        },
+        include: { classroom: true, exam: { include: { course: true } } },
+      });
+      if (req.body.classroomId && existing.roomSlotId) {
+        await tx.examRoomSlot.update({ where: { id: existing.roomSlotId }, data: { classroomId: req.body.classroomId } });
+        for (const move of validation.summary.seatMoves || []) {
+          await tx.seatAssignment.update({ where: { id: move.assignmentId }, data: { classroomId: req.body.classroomId, seatId: move.seatId } });
+        }
+      }
+      return updated;
     });
+    await writeAuditLog(req, { action: 'MANUAL_ROOM_ASSIGNMENT_UPDATE', entity: 'ExamRoomAssignment', entityId: req.params.id, metadata: { patch: req.body, validation } });
     res.json({ success: true, data, validation });
   }),
 );
@@ -114,6 +127,7 @@ router.patch(
       },
       include: { invigilator: true, exam: { include: { course: true } } },
     });
+    await writeAuditLog(req, { action: 'MANUAL_INVIGILATOR_ASSIGNMENT_UPDATE', entity: 'InvigilatorAssignment', entityId: req.params.id, metadata: { patch: req.body, validation } });
     res.json({ success: true, data, validation });
   }),
 );
