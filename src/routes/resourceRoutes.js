@@ -1,6 +1,7 @@
 const crudRouter = require('../utils/crudRouter');
 const prisma = require('../config/prisma');
 const { resolveDepartment } = require('../utils/departmentResolver');
+const { validateExamScheduleChange } = require('../services/manualValidationService');
 
 const seatInclude = { seats: { orderBy: [{ row: 'asc' }, { column: 'asc' }] } };
 
@@ -109,7 +110,16 @@ async function normalizeStudent(body, req) {
   }), body, req);
 }
 
-function normalizeExam(body) {
+async function normalizeExam(body, req, existing = null) {
+  if (existing && (body.date !== undefined || body.tarih !== undefined || body.startTime !== undefined || body.baslangicSaati !== undefined || body.endTime !== undefined || body.bitisSaati !== undefined)) {
+    const validation = await validateExamScheduleChange(existing.id, body);
+    if (!validation.ok) {
+      const error = new Error('Hard constraint ihlali nedeniyle değişiklik kaydedilmedi.');
+      error.status = 409;
+      error.validation = validation;
+      throw error;
+    }
+  }
   return {
     courseId: body.courseId,
     periodId: body.periodId || null,

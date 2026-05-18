@@ -9,6 +9,7 @@ const aiRoutes = require('./src/routes/aiRoutes');
 const reportRoutes = require('./src/routes/reportRoutes');
 const dashboardRoutes = require('./src/routes/dashboardRoutes');
 const manualEditRoutes = require('./src/routes/manualEditRoutes');
+const operationRoutes = require('./src/routes/operationRoutes');
 const { requireAuth } = require('./src/middleware/auth');
 const {
   classroomRoutes,
@@ -42,6 +43,7 @@ app.use('/api/courses', courseRoutes);
 app.use('/api/classrooms', classroomRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/invigilators', invigilatorRoutes);
+app.use('/api/exams', operationRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/exam-periods', examPeriodRoutes);
 app.use('/api/imports', importRoutes);

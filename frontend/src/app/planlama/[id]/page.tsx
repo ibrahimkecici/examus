@@ -340,6 +340,8 @@ function OverviewTab({ scenario }: { scenario: Scenario }) {
         </div>
       )}
 
+      <PlanQualityPanel metrics={metrics} />
+
       {scenario.warnings && scenario.warnings.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
           <h3 className="mb-2 font-semibold text-amber-700 dark:text-amber-400">Uyarılar ({scenario.warnings.length})</h3>
@@ -361,14 +363,53 @@ function OverviewTab({ scenario }: { scenario: Scenario }) {
             <div key={insight.id} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
               <p className="text-xs text-slate-400">{formatDate(insight.createdAt)}</p>
               <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{insight.summary}</p>
-              {insight.risks && <p className="mt-1 text-xs text-amber-600">Riskler: {JSON.stringify(insight.risks)}</p>}
-              {insight.suggestions && <p className="mt-1 text-xs text-green-600">Oneriler: {JSON.stringify(insight.suggestions)}</p>}
+              {Boolean(insight.risks) && <p className="mt-1 text-xs text-amber-600">Riskler: {JSON.stringify(insight.risks)}</p>}
+              {Boolean(insight.suggestions) && <p className="mt-1 text-xs text-green-600">Oneriler: {JSON.stringify(insight.suggestions)}</p>}
             </div>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+function PlanQualityPanel({ metrics }: { metrics?: Metrics }) {
+  if (!metrics) return null;
+  const qualityItems = [
+    { label: 'Fiziksel salon doluluğu', value: percentMetric(metrics.averagePhysicalRoomUtilization ?? metrics.physicalRoomUtilization) },
+    { label: 'Sınav kapasitesi doluluğu', value: percentMetric(metrics.averageExamCapacityUtilization ?? metrics.examCapacityUtilization) },
+    { label: 'Boş fiziksel kapasite', value: numberMetric(metrics.totalPhysicalUnusedCapacity ?? metrics.totalUnusedCapacity) },
+    { label: 'Gözetmen yük dengesi', value: numberMetric(metrics.invigilatorLoadImbalance ?? metrics.invigilatorFairnessPenalty) },
+    { label: 'Öğrenci günlük yükü', value: numberMetric(metrics.studentDailyLoadPenalty ?? metrics.sameDayStudentPenalty) },
+    { label: 'Ardışık sınav yükü', value: numberMetric(metrics.backToBackPenalty ?? metrics.studentBackToBackPenalty) },
+  ].filter((item) => item.value !== '-');
+  if (qualityItems.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <h3 className="mb-3 font-semibold text-sm">Plan Kalitesi</h3>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        {qualityItems.map((item) => (
+          <div key={item.label} className="rounded-md bg-slate-50 px-3 py-2 dark:bg-slate-950">
+            <p className="text-xs text-slate-500">{item.label}</p>
+            <p className="mt-1 font-semibold">{item.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function percentMetric(value: unknown) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '-';
+  return `%${Math.round(number * 100)}`;
+}
+
+function numberMetric(value: unknown) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '-';
+  return String(Math.round(number * 100) / 100);
 }
 
 function ScheduleTab({ schedules }: { schedules: Schedule[] }) {

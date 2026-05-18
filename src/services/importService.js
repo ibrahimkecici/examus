@@ -3,7 +3,7 @@ const XLSX = require('xlsx');
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { syncCourseStudentCounts } = require('./courseStatsService');
-const { resolveDepartment } = require('../utils/departmentResolver');
+const { normalizeDepartmentCode, resolveDepartment } = require('../utils/departmentResolver');
 
 function readRows(file) {
   if (!file) {
@@ -21,11 +21,126 @@ function readRows(file) {
   return XLSX.utils.sheet_to_json(sheet, { defval: '' });
 }
 
+const IMPORT_SCHEMAS = {
+  students: {
+    required: [['studentNo', 'ogrenciNo', 'Öğrenci No', 'numara'], ['fullName', 'adSoyad', 'Ad Soyad', 'ad_soyad']],
+    known: ['studentNo', 'ogrenciNo', 'Öğrenci No', 'numara', 'fullName', 'adSoyad', 'Ad Soyad', 'ad_soyad', 'department', 'bolum', 'Bölüm', 'courses', 'dersler', 'Dersler', 'specialNeeds', 'ozelDurum', 'Özel Durum'],
+  },
+  courses: {
+    required: [['code', 'dersKodu', 'Ders Kodu'], ['name', 'dersAd', 'Ders Adı']],
+    known: ['code', 'dersKodu', 'Ders Kodu', 'name', 'dersAd', 'Ders Adı', 'instructorName', 'ogretimElemani', 'Öğretim Elemanı', 'department', 'bolum', 'Bölüm', 'studentCount', 'ogrenciSayisi', 'Öğrenci Sayısı', 'durationMinutes', 'sure', 'Süre', 'requiredRoomType', 'roomType', 'derslikTipi', 'Derslik Tipi', 'requiredFeatures', 'features', 'ozellikler', 'Özellikler', 'specialRules', 'kurallar', 'Kurallar', 'bookletTypes', 'kitapciklar', 'Kitapçıklar', 'kitapçıklar'],
+  },
+  classrooms: {
+    required: [['code', 'derslikKodu', 'Sınıf Kodu'], ['capacity', 'kapasite', 'Kapasite']],
+    known: ['code', 'derslikKodu', 'Sınıf Kodu', 'name', 'ad', 'Sınıf Adı', 'capacity', 'kapasite', 'Kapasite', 'examCapacity', 'sinavKapasitesi', 'Sınav Kapasitesi', 'roomType', 'derslikTipi', 'Derslik Tipi', 'features', 'ozellikler', 'Özellikler', 'building', 'bina', 'Bina', 'floor', 'kat', 'Kat'],
+  },
+  invigilators: {
+    required: [['staffNo', 'sicilNo', 'Sicil No'], ['firstName', 'ad', 'Ad'], ['lastName', 'soyad', 'Soyad']],
+    known: ['staffNo', 'sicilNo', 'Sicil No', 'firstName', 'ad', 'Ad', 'lastName', 'soyad', 'Soyad', 'title', 'unvan', 'Unvan', 'department', 'bolum', 'Bölüm', 'email', 'Email', 'maxAssignments', 'maksGorev', 'Maks Görev', 'priority', 'oncelik', 'Öncelik', 'constraints', 'kisitlar', 'Kısıtlar', 'account'],
+  },
+};
+
 function value(row, keys) {
   for (const key of keys) {
     if (row[key] !== undefined && row[key] !== null && String(row[key]).trim() !== '') return String(row[key]).trim();
   }
   return '';
+}
+
+function hasAnyColumn(columns, keys) {
+  return keys.some((key) => columns.includes(key));
+}
+
+async function previewImport(type, file, req) {
+  const schema = IMPORT_SCHEMAS[type];
+  if (!schema) {
+    const error = new Error('Geçersiz import tipi.');
+    error.status = 400;
+    throw error;
+  }
+  if (type === 'classrooms' && req.user.role !== 'ADMIN') {
+    const error = new Error('Derslik importu sadece admin tarafından yapılabilir.');
+    error.status = 403;
+    throw error;
+  }
+  const rows = readRows(file);
+  const columns = Object.keys(rows[0] || {});
+  const missingColumns = schema.required
+    .filter((aliases) => !hasAnyColumn(columns, aliases))
+    .map((aliases) => aliases[0]);
+  const unknownColumns = columns.filter((column) => !schema.known.includes(column));
+  const rowErrors = [];
+  let creatableRows = 0;
+  let updateRows = 0;
+  let createdUserAccounts = 0;
+  const departments = new Map();
+
+  for (const [index, row] of rows.entries()) {
+    const rowNumber = index + 2;
+    const requiredMissing = schema.required
+      .filter((aliases) => !value(row, aliases))
+      .map((aliases) => aliases[0]);
+    if (requiredMissing.length) {
+      rowErrors.push({ row: rowNumber, field: requiredMissing.join(', '), message: 'Zorunlu alan eksik.' });
+      continue;
+    }
+
+    const departmentName = value(row, ['department', 'bolum', 'Bölüm']) || (req.user.role === 'DEPARTMENT_MANAGER' ? req.user.department : null);
+    if (departmentName || req.user.role === 'DEPARTMENT_MANAGER') {
+      try {
+        const department = req.user.role === 'DEPARTMENT_MANAGER'
+          ? await prisma.department.findUnique({ where: { id: req.user.departmentId || '__missing__' } })
+          : await prisma.department.findUnique({ where: { code: normalizeDepartmentCode(departmentName) } });
+        if (!department && req.user.role === 'DEPARTMENT_MANAGER') throw new Error('Bölüm kapsamı tanımlı olmayan kullanıcı bu işlemi yapamaz.');
+        const previewDepartment = department || { id: null, code: normalizeDepartmentCode(departmentName), name: departmentName || 'Genel', willCreate: true };
+        departments.set(previewDepartment.code, previewDepartment);
+      } catch (error) {
+        rowErrors.push({ row: rowNumber, field: 'department', message: error.message });
+        continue;
+      }
+    }
+
+    if (type === 'students') {
+      const studentNo = value(row, ['studentNo', 'ogrenciNo', 'Öğrenci No', 'numara']);
+      const existing = await prisma.student.findUnique({ where: { studentNo } });
+      if (existing) updateRows += 1;
+      else creatableRows += 1;
+      if (!existing?.userId) createdUserAccounts += 1;
+    } else if (type === 'courses') {
+      const code = value(row, ['code', 'dersKodu', 'Ders Kodu']);
+      const existing = await prisma.course.findUnique({ where: { code } });
+      if (existing) updateRows += 1;
+      else creatableRows += 1;
+    } else if (type === 'classrooms') {
+      const code = value(row, ['code', 'derslikKodu', 'Sınıf Kodu']);
+      const existing = await prisma.classroom.findUnique({ where: { code } });
+      if (existing) updateRows += 1;
+      else creatableRows += 1;
+    } else if (type === 'invigilators') {
+      const staffNo = value(row, ['staffNo', 'sicilNo', 'Sicil No']);
+      const existing = await prisma.invigilator.findUnique({ where: { staffNo } });
+      if (existing) updateRows += 1;
+      else creatableRows += 1;
+      if (!existing?.userId) createdUserAccounts += 1;
+    }
+  }
+
+  return {
+    entityType: type,
+    fileName: file.originalname,
+    totalRows: rows.length,
+    columns,
+    missingColumns,
+    unknownColumns,
+    validRows: Math.max(0, rows.length - rowErrors.length),
+    errorRows: rowErrors.length,
+    creatableRows,
+    updateRows,
+    createdUserAccounts,
+    departments: [...departments.values()],
+    rowErrors: rowErrors.slice(0, 50),
+    departmentLockedToUser: req.user.role === 'DEPARTMENT_MANAGER',
+  };
 }
 
 function numberValue(row, keys, fallback = null) {
@@ -66,6 +181,9 @@ async function importStudents(file, req) {
   const rows = readRows(file);
   const errors = [];
   let successRows = 0;
+  let createdRows = 0;
+  let updatedRows = 0;
+  let createdUserAccounts = 0;
 
   const batch = await prisma.importBatch.create({
     data: { entityType: 'students', fileName: file.originalname, totalRows: rows.length },
@@ -89,11 +207,14 @@ async function importStudents(file, req) {
 
     try {
       departmentRecord = await resolveDepartment(prisma, department, req);
+      const existingStudent = await prisma.student.findUnique({ where: { studentNo } });
       const student = await prisma.student.upsert({
         where: { studentNo },
         update: { fullName, department: departmentRecord.name, departmentId: departmentRecord.id, specialNeeds: value(row, ['specialNeeds', 'ozelDurum', 'Özel Durum']) || null },
         create: { studentNo, fullName, department: departmentRecord.name, departmentId: departmentRecord.id, specialNeeds: value(row, ['specialNeeds', 'ozelDurum', 'Özel Durum']) || null },
       });
+      if (existingStudent) updatedRows += 1;
+      else createdRows += 1;
       if (!student.userId) {
         const user = await prisma.user.upsert({
           where: { email: `${studentNo}@students.examus.local` },
@@ -109,6 +230,7 @@ async function importStudents(file, req) {
           },
         });
         await prisma.student.update({ where: { id: student.id }, data: { userId: user.id } });
+        createdUserAccounts += 1;
       }
 
       for (const code of courseCodes) {
@@ -130,7 +252,7 @@ async function importStudents(file, req) {
 
   await syncCourseStudentCounts([...touchedCourseIds]);
 
-  return prisma.importBatch.update({
+  const batchResult = await prisma.importBatch.update({
     where: { id: batch.id },
     data: {
       status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED',
@@ -139,12 +261,15 @@ async function importStudents(file, req) {
       errors,
     },
   });
+  return { ...batchResult, createdRows, updatedRows, createdUserAccounts };
 }
 
 async function importCourses(file, req) {
   const rows = readRows(file);
   const errors = [];
   let successRows = 0;
+  let createdRows = 0;
+  let updatedRows = 0;
   const batch = await prisma.importBatch.create({ data: { entityType: 'courses', fileName: file.originalname, totalRows: rows.length } });
 
   for (const [index, row] of rows.entries()) {
@@ -156,7 +281,8 @@ async function importCourses(file, req) {
     }
 
     const departmentName = value(row, ['department', 'bolum', 'Bölüm']) || null;
-    const department = departmentName || req?.user?.role === 'DEPARTMENT_MANAGER' ? await resolveDepartment(prisma, departmentName, req) : null;
+    const department = (departmentName || req?.user?.role === 'DEPARTMENT_MANAGER') ? await resolveDepartment(prisma, departmentName, req) : null;
+    const existingCourse = await prisma.course.findUnique({ where: { code } });
     const courseData = {
       name,
       instructorName: value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']) || null,
@@ -174,16 +300,21 @@ async function importCourses(file, req) {
       update: courseData,
       create: { code, ...courseData },
     });
+    if (existingCourse) updatedRows += 1;
+    else createdRows += 1;
     successRows += 1;
   }
 
-  return prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
+  const batchResult = await prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
+  return { ...batchResult, createdRows, updatedRows, createdUserAccounts: 0 };
 }
 
 async function importClassrooms(file) {
   const rows = readRows(file);
   const errors = [];
   let successRows = 0;
+  let createdRows = 0;
+  let updatedRows = 0;
   const batch = await prisma.importBatch.create({ data: { entityType: 'classrooms', fileName: file.originalname, totalRows: rows.length } });
 
   for (const [index, row] of rows.entries()) {
@@ -194,6 +325,7 @@ async function importClassrooms(file) {
       errors.push({ row: index + 2, message: 'Sınıf kodu ve kapasite zorunludur.' });
       continue;
     }
+    const existingClassroom = await prisma.classroom.findUnique({ where: { code } });
     const classroom = await prisma.classroom.upsert({
       where: { code },
       update: {
@@ -218,6 +350,8 @@ async function importClassrooms(file) {
         columnCount: Math.min(6, capacity),
       },
     });
+    if (existingClassroom) updatedRows += 1;
+    else createdRows += 1;
     const seatCount = await prisma.seat.count({ where: { classroomId: classroom.id } });
     if (seatCount === 0) {
       const columnCount = Math.min(6, capacity);
@@ -235,13 +369,17 @@ async function importClassrooms(file) {
     successRows += 1;
   }
 
-  return prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
+  const batchResult = await prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
+  return { ...batchResult, createdRows, updatedRows, createdUserAccounts: 0 };
 }
 
 async function importInvigilators(file, req) {
   const rows = readRows(file);
   const errors = [];
   let successRows = 0;
+  let createdRows = 0;
+  let updatedRows = 0;
+  let createdUserAccounts = 0;
   const batch = await prisma.importBatch.create({ data: { entityType: 'invigilators', fileName: file.originalname, totalRows: rows.length } });
 
   for (const [index, row] of rows.entries()) {
@@ -253,8 +391,9 @@ async function importInvigilators(file, req) {
       continue;
     }
     const departmentName = value(row, ['department', 'bolum', 'Bölüm']) || null;
-    const department = departmentName || req?.user?.role === 'DEPARTMENT_MANAGER' ? await resolveDepartment(prisma, departmentName, req) : null;
+    const department = (departmentName || req?.user?.role === 'DEPARTMENT_MANAGER') ? await resolveDepartment(prisma, departmentName, req) : null;
     const email = value(row, ['email', 'Email']) || null;
+    const existingInvigilator = await prisma.invigilator.findUnique({ where: { staffNo } });
     const invigilator = await prisma.invigilator.upsert({
       where: { staffNo },
       update: {
@@ -281,6 +420,8 @@ async function importInvigilators(file, req) {
         constraints: jsonValue(row, ['constraints', 'kisitlar', 'Kısıtlar']),
       },
     });
+    if (existingInvigilator) updatedRows += 1;
+    else createdRows += 1;
     if (!invigilator.userId) {
       const user = await prisma.user.upsert({
         where: { email: email || `${staffNo}@invigilators.examus.local` },
@@ -302,11 +443,13 @@ async function importInvigilators(file, req) {
         },
       });
       await prisma.invigilator.update({ where: { id: invigilator.id }, data: { userId: user.id } });
+      createdUserAccounts += 1;
     }
     successRows += 1;
   }
 
-  return prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
+  const batchResult = await prisma.importBatch.update({ where: { id: batch.id }, data: { status: errors.length ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED', successRows, errorRows: errors.length, errors } });
+  return { ...batchResult, createdRows, updatedRows, createdUserAccounts };
 }
 
-module.exports = { importClassrooms, importCourses, importInvigilators, importStudents };
+module.exports = { importClassrooms, importCourses, importInvigilators, importStudents, previewImport };

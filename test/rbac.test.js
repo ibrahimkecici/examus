@@ -6,6 +6,7 @@ const {
   resourceReadWhere,
 } = require('../src/utils/accessControl');
 const { filterScenarioForUser, scenarioWhereForUser } = require('../src/utils/scenarioAccess');
+const { buildExamOperationFromScenario } = require('../src/services/operationService');
 
 test('valid roles are limited to the five supported RBAC roles', () => {
   assert.doesNotThrow(() => assertValidRole('ADMIN'));
@@ -82,4 +83,46 @@ test('scenario where supports instructor, invigilator, and student scoped listin
   });
   assert.deepEqual(scenarioWhereForUser({ role: 'INVIGILATOR', id: 'inv-1' }), { invigilators: { some: { invigilator: { userId: 'inv-1' } } } });
   assert.deepEqual(scenarioWhereForUser({ role: 'STUDENT', id: 'student-1' }), { seats: { some: { student: { userId: 'student-1' } } } });
+});
+
+test('exam operation model exposes role scoped seating and room details', () => {
+  const scenario = {
+    id: 'scenario-1',
+    name: 'Final plan',
+    status: 'COMPLETED',
+    strategy: 'optimal_cp_sat',
+    score: 92,
+    period: { id: 'period-1', name: 'Final' },
+    schedules: [
+      { examId: 'exam-1', date: new Date('2026-06-01'), startTime: '09:00', endTime: '11:00', exam: { id: 'exam-1', durationMinutes: 120, course: { code: 'MAT101', name: 'Matematik', studentCount: 1 } } },
+    ],
+    rooms: [
+      { id: 'room-assignment-1', examId: 'exam-1', classroomId: 'room-1', assignedCount: 1, classroom: { code: 'A101', name: 'Amfi 101', capacity: 80, examCapacity: 40, rowCount: 2, columnCount: 2 } },
+    ],
+    seats: [
+      {
+        id: 'seat-assignment-1',
+        examId: 'exam-1',
+        studentId: 'student-1',
+        classroomId: 'room-1',
+        seatId: 'seat-1',
+        bookletType: 'A',
+        locked: false,
+        student: { studentNo: '20240001', fullName: 'Ayşe Yılmaz', specialNeeds: 'Ön sıra' },
+        seat: { label: 'A1', row: 1, column: 1 },
+        classroom: { code: 'A101', name: 'Amfi 101', rowCount: 2, columnCount: 2 },
+        exam: { course: { code: 'MAT101', name: 'Matematik' } },
+      },
+    ],
+    invigilators: [
+      { id: 'inv-assignment-1', examId: 'exam-1', invigilatorId: 'inv-1', role: 'SALON', invigilator: { staffNo: 'GZ001', firstName: 'Ali', lastName: 'Kaya', title: 'Dr.' } },
+    ],
+  };
+
+  const operation = buildExamOperationFromScenario(scenario, 'exam-1', { role: 'INVIGILATOR' });
+  assert.equal(operation.summary.assignedCount, 1);
+  assert.equal(operation.rooms[0].classroomCode, 'A101');
+  assert.equal(operation.rooms[0].seats[0].studentNo, '20240001');
+  assert.equal(operation.seats[0].bookletType, 'A');
+  assert.equal(operation.invigilators[0].name, 'Dr. Ali Kaya');
 });

@@ -30,7 +30,7 @@ const SINGLE_REPORT_BY_ROLE: Record<Exclude<CurrentUser['role'], 'ADMIN'>, Repor
   INSTRUCTOR: {
     label: 'Derslerim',
     description: 'Sorumlu olduğunuz derslerin sınav saati, salonu ve öğrenci oturma özeti.',
-    path: 'calendar.pdf',
+    path: 'full.pdf',
   },
   INVIGILATOR: {
     label: 'Görev ve Oturma Düzeni',

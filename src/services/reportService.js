@@ -265,6 +265,7 @@ function buildPdfReportModel(scenario, options = {}) {
     warningSummary: warningSummary(filteredWarnings),
     examId: options.examId || null,
     examLabel: examLabelForModel(scenario, options.examId),
+    userRole: options.userRole || 'ADMIN',
     summary: {
       scenarioName: scenario.name,
       periodName: scenario.period?.name || '-',
@@ -924,6 +925,28 @@ function renderInvigilatorSection(doc, model) {
 }
 
 function renderPdfByType(doc, model, type) {
+  if (type === 'full' && model.userRole === 'INVIGILATOR') {
+    renderSummarySection(doc, model);
+    doc.addPage({ layout: 'portrait' });
+    renderClassroomSection(doc, model, true);
+    doc.addPage({ layout: 'landscape' });
+    renderInvigilatorSection(doc, model);
+    renderWarningsSection(doc, model);
+    return;
+  }
+  if (type === 'full' && model.userRole === 'INSTRUCTOR') {
+    renderSummarySection(doc, model);
+    doc.addPage({ layout: 'landscape' });
+    renderCalendarSection(doc, model);
+    doc.addPage({ layout: 'portrait' });
+    renderClassroomSection(doc, model, true);
+    renderWarningsSection(doc, model);
+    return;
+  }
+  if (type === 'full' && model.userRole === 'STUDENT') {
+    renderStudentSection(doc, model);
+    return;
+  }
   if (type === 'exam') {
     renderSummarySection(doc, model);
     doc.addPage({ layout: 'portrait' });
@@ -992,12 +1015,12 @@ function streamScenarioPdfData(scenario, res, type = 'calendar', options = {}) {
 
 async function streamScenarioPdf(scenarioId, res, type = 'calendar', user = null) {
   const scenario = await getScenarioReportData(scenarioId, user);
-  streamScenarioPdfData(scenario, res, type);
+  streamScenarioPdfData(scenario, res, type, { userRole: user?.role || 'ADMIN' });
 }
 
 async function streamScenarioExamPdf(scenarioId, examId, res, user = null) {
   const scenario = await getScenarioReportData(scenarioId, user);
-  streamScenarioPdfData(scenario, res, 'exam', { examId });
+  streamScenarioPdfData(scenario, res, 'exam', { examId, userRole: user?.role || 'ADMIN' });
 }
 
 async function streamPdf(scenarioId, res) {

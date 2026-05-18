@@ -13,7 +13,7 @@ type Dashboard = {
   operationalItems: OperationalItem[];
 };
 type OperationalItem = {
-  kind: 'student_exam' | 'invigilator_task' | 'instructor_exam';
+  kind: 'student_exam' | 'invigilator_task' | 'instructor_exam' | 'department_exam';
   scenarioId?: string;
   scenarioName?: string;
   examId: string;
@@ -27,10 +27,12 @@ type OperationalItem = {
   classrooms?: string[];
   seat?: string;
   bookletType?: string | null;
+  specialNeeds?: string | null;
   assignedCount?: number;
   expectedCount?: number;
   role?: string;
   invigilators?: string[];
+  specialNeedsSummary?: string | null;
   seatingPreview?: Array<{
     classroom: string;
     seat: string;
@@ -92,10 +94,10 @@ export default function Home() {
         {metrics.map((metric) => <Metric key={metric.href} {...metric} />)}
       </div>
 
-      {user?.role === 'STUDENT' || user?.role === 'INSTRUCTOR' || user?.role === 'INVIGILATOR' ? (
+      {user?.role === 'STUDENT' || user?.role === 'INSTRUCTOR' || user?.role === 'INVIGILATOR' || user?.role === 'DEPARTMENT_MANAGER' ? (
         <section className="rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-semibold">{user.role === 'INVIGILATOR' ? 'Görevlerim' : 'Sınavlarım'}</h3>
+            <h3 className="text-lg font-semibold">{dashboardSectionTitle(user.role)}</h3>
             <Link className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-950" href="/sinavlar">
               Tümünü aç
             </Link>
@@ -179,6 +181,7 @@ function OperationalDetail({ item }: { item: OperationalItem }) {
         <p><span className="text-slate-500">Salon:</span> {item.classroom || '-'}</p>
         <p><span className="text-slate-500">Koltuk:</span> <span className="font-semibold">{item.seat || '-'}</span></p>
         <p><span className="text-slate-500">Kitapçık:</span> {item.bookletType || '-'}</p>
+        {item.specialNeeds ? <p><span className="text-slate-500">Not:</span> {item.specialNeeds}</p> : null}
       </div>
     );
   }
@@ -196,8 +199,15 @@ function OperationalDetail({ item }: { item: OperationalItem }) {
       <p><span className="text-slate-500">Salon:</span> {item.classrooms?.length ? item.classrooms.join(', ') : '-'}</p>
       <p><span className="text-slate-500">Atama:</span> {item.assignedCount ?? 0}/{item.expectedCount ?? '-'}</p>
       <p><span className="text-slate-500">Gözetmen:</span> {item.invigilators?.length ? item.invigilators.join(', ') : '-'}</p>
+      {'specialNeedsSummary' in item && item.specialNeedsSummary ? <p><span className="text-slate-500">Özel ihtiyaç:</span> {String(item.specialNeedsSummary)}</p> : null}
     </div>
   );
+}
+
+function dashboardSectionTitle(role: CurrentUser['role']) {
+  if (role === 'INVIGILATOR') return 'Görevlerim';
+  if (role === 'DEPARTMENT_MANAGER') return 'Bölüm Operasyonu';
+  return 'Sınavlarım';
 }
 
 function InvigilatorSeatingPreview({ item, onOpen }: { item: OperationalItem; onOpen: () => void }) {

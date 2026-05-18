@@ -9,12 +9,15 @@ Bu sürüm, `examus_gereksinim_dokumani.md` içindeki tam v1 hedeflerine göre E
 - Rol bazlı kullanıcı altyapısı ve JWT kimlik doğrulama
 - Öğrenci, ders, derslik, gözetmen, sınav ve sınav dönemi yönetimi
 - CSV/XLSX veri içe aktarma
+- Import önizleme, CSV şablonları ve otomatik öğrenci/gözetmen hesap üretimi
 - Sınav dönemi bazlı planlama senaryoları
 - Kapasite, öğrenci çakışması, salon çakışması ve gözetmen çakışması kontrolleri
 - Otomatik salon, sıra ve gözetmen atama
 - Manuel sınav zamanı ve oturma düzeni müdahalesi için endpointler
+- Manuel düzenleme sonrası hard constraint validasyonu
 - LLM destekli AI önerileri ve heuristic fallback
 - PDF/Excel rapor çıktıları
+- Rol bazlı dashboard, operasyon detayları ve filtreli raporlar
 - Canlı API kullanan Next.js yönetim paneli
 
 ## Teknoloji Stack
@@ -146,6 +149,8 @@ Backend varsayılan adres:
 http://localhost:5001
 ```
 
+Backend dev komutu watch mode kullanmaz. Backend dosyalarında değişiklik yaptıktan sonra `npm run dev` sürecini durdurup yeniden başlatın.
+
 Frontend:
 
 ```bash
@@ -165,6 +170,29 @@ http://localhost:3000
 2. “İlk admin hesabını oluştur” butonunu kullanın.
 3. Ardından panel üzerinden veri yükleme, dönem oluşturma ve planlama akışını başlatın.
 
+Öğrenci ve gözetmen importları bağlı kullanıcı hesabını otomatik oluşturur. İlk şifre `12345678` olarak hash’lenir ve kullanıcı ilk girişte yeni şifre belirlemek zorundadır.
+
+## Veri Yükleme
+
+Veri yükleme ekranında her import tipi için CSV şablonu indirilebilir. Dosya önce “Önizle” akışından geçirilir:
+
+- Eksik zorunlu kolonlar ve tanınmayan kolonlar gösterilir.
+- Department eşleşmeleri listelenir; bölüm koordinatörü importu kendi bölümüne sabitlenir.
+- Yeni/güncellenecek kayıt sayısı ve otomatik oluşturulacak öğrenci/gözetmen hesabı sayısı gösterilir.
+- Hatalı satır varsa import başlatılmaz.
+
+## Rol Bazlı Kullanım
+
+Beş rol desteklenir: `ADMIN`, `DEPARTMENT_MANAGER`, `INSTRUCTOR`, `INVIGILATOR`, `STUDENT`.
+
+- Admin tüm sistemi, planlama çalıştırma/onaylama aksiyonlarını ve tüm raporları görür.
+- Bölüm koordinatörü kendi bölümünün operasyonunu ve raporunu görür; planlama çalıştıramaz.
+- Ders sorumlusu kendi derslerinin sınav, salon, öğrenci yerleşimi ve gözetmen özetini görür.
+- Gözetmen kendi görevlerini, salon/kapı listesini ve tam oturma düzenini görür.
+- Öğrenci kendi sınavlarını, salonunu, koltuğunu ve kitapçık bilgisini görür.
+
+Detaylı matris için `docs/rol-yetki-matrisi.md` dosyasına bakın.
+
 ## Ana API Grupları
 
 - `POST /api/auth/login`
@@ -177,8 +205,10 @@ http://localhost:3000
 - `/api/classrooms`
 - `/api/invigilators`
 - `/api/exams`
+- `GET /api/exams/:id/operations`
 - `/api/exam-periods`
 - `/api/imports`
+- `POST /api/imports/:type/preview`
 - `/api/planning/scenarios`
 - `/api/ai/scenarios/:id/insights`
 - `/api/reports/scenarios/:id/calendar.xlsx`

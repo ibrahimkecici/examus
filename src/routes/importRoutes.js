@@ -3,12 +3,17 @@ const multer = require('multer');
 const prisma = require('../config/prisma');
 const asyncHandler = require('../utils/asyncHandler');
 const { requireRole } = require('../middleware/auth');
-const { importClassrooms, importCourses, importInvigilators, importStudents } = require('../services/importService');
+const { importClassrooms, importCourses, importInvigilators, importStudents, previewImport } = require('../services/importService');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(requireRole('ADMIN', 'DEPARTMENT_MANAGER'));
+
+router.post('/:type/preview', upload.single('file'), asyncHandler(async (req, res) => {
+  const data = await previewImport(req.params.type, req.file, req);
+  res.json({ success: true, data });
+}));
 
 router.post('/students', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importStudents(req.file, req) })));
 router.post('/courses', upload.single('file'), asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await importCourses(req.file, req) })));

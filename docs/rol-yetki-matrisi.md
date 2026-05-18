@@ -32,6 +32,18 @@ Bu doküman Examus içinde kullanılan rol bazlı erişim kontrolünü açıklar
 | PDF / Excel rapor export | Tam | Kendi bölümü | Kendi dersleri | Kendi görevli olduğu sınavlar | Kendi sınav/koltuk bilgisi |
 | AI önerisi üretme | Tam | Açık | Yok | Yok | Yok |
 
+## Rol Bazlı Dashboard
+
+Dashboard her rol için günlük iş akışına göre daraltılır.
+
+- `ADMIN`: sistem geneli kayıt sayıları, son planlama senaryoları, uyarı sağlığı ve planlama aksiyonlarına geçiş.
+- `DEPARTMENT_MANAGER`: kendi bölümünün sınav operasyonu, son senaryoları, uyarıları ve bölüm kapsamındaki raporlar.
+- `INSTRUCTOR`: kendi derslerinin sınavları, salonları, atanan/beklenen öğrenci sayısı ve gözetmen özeti.
+- `INVIGILATOR`: kendi görevleri, salon/saat bilgisi, tam oturma grid’i, kapı listesi, kitapçık ve özel ihtiyaç özeti.
+- `STUDENT`: kendi sınavları, salon, koltuk, kitapçık ve varsa özel ihtiyaç notu.
+
+Gözetmen ve öğrenci dashboard verileri yalnızca ilgili kişinin kapsamındaki sınav ve oturma kayıtlarını içerir.
+
 ## Bölüm Kapsamı
 
 Bölüm bazlı güvenlik string karşılaştırmasına bağlı değildir. Yetkilendirme `Department.id` ve ilişkili `departmentId` alanları üzerinden yapılır.
@@ -81,6 +93,8 @@ Import sırasında `department` kolonu `Department` kaydıyla eşleştirilir.
 - Bölüm koordinatörü için kayıtlar kendi `departmentId` kapsamına bağlanır.
 - Öğrenci importunda bağlı kullanıcı hesabı yoksa otomatik öğrenci kullanıcısı oluşturulur.
 - Gözetmen importunda bağlı kullanıcı hesabı yoksa otomatik gözetmen kullanıcısı oluşturulur.
+- Import öncesi önizleme yapılır; eksik/tanınmayan kolonlar, department eşleşmeleri, yeni/güncellenecek kayıtlar ve otomatik oluşacak hesap sayısı gösterilir.
+- Veri yükleme ekranında her import tipi için CSV şablonu indirilebilir.
 
 ## Öğrenci Hesapları
 
@@ -110,6 +124,9 @@ Frontend rol bilgisine göre menü ve aksiyonları saklar.
 - Yetkisiz doğrudan URL girişinde `Erişim yetkiniz yok` ekranı gösterilir.
 - Admin olmayan kullanıcıda planlama çalıştırma, tekrar kontrol ve onay butonları görünmez.
 - İlk giriş şifresi değişmemiş kullanıcıda sidebar ve normal ekranlar gösterilmez; sadece yeni şifre belirleme ekranı açılır.
+- Admin dışı roller raporlarda varsayılan olarak tek ana PDF görür.
+- Gözetmen kendi panelinde oturma düzeni önizlemesine tıklayarak tam grid ve kapı listesini uygulama içinde açabilir.
+- Sınav detay ekranı `/api/exams/:id/operations` üzerinden role göre filtrelenmiş operasyon verisi gösterir.
 
 Bu kontroller kullanıcı deneyimi içindir. Asıl yetki kontrolü backend route ve scope kontrollerindedir.
 
@@ -123,6 +140,8 @@ Başlıca uygulama noktaları:
 - `src/routes/planningRoutes.js`: admin-only planlama aksiyonları
 - `src/routes/importRoutes.js`: import rol ayrımı
 - `src/routes/userRoutes.js`: admin-only kullanıcı yönetimi ve öğrenci hesap üretimi
+- `src/services/operationService.js`: rol bazlı dashboard ve sınav operasyon verisi
+- `src/services/manualValidationService.js`: manuel düzenleme hard constraint validasyonları
 - `frontend/src/lib/auth.ts`: frontend rol etiketleri, menü ve ekran erişim yardımcıları
 
 ## Bilinen Sınırlar
@@ -132,4 +151,5 @@ Başlıca uygulama noktaları:
 - Gözetmen raporları yalnızca gözetmenin görevli olduğu sınavlarla filtrelenir.
 - Öğrenci raporları yalnızca öğrencinin kendi sınavlarını ve kendi koltuk bilgisini içerir.
 - Eski `department` string alanları migration uyumluluğu için tutulur; sonraki temizlik fazında kaldırılabilir.
-- Planlama senaryosu listeleme/görüntüleme endpointleri bölüm kapsamına göre ayrıca daraltılmaya adaydır; çalıştırma ve onaylama zaten sadece admindedir.
+- Planlama senaryosu listeleme/görüntüleme endpointleri rol kapsamına göre filtrelenir; çalıştırma ve onaylama sadece admindedir.
+- Salon değiştirme gibi manuel düzenlemeler hard constraint validasyonu olmadan kaydedilmez; daha zengin sürükle-bırak düzenleme deneyimi ayrı UI fazında geliştirilebilir.

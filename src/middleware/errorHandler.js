@@ -9,6 +9,7 @@ module.exports = (err, req, res, next) => {
     success: false,
     message: err && err.message ? err.message : 'Sunucu hatası',
     details: err.details,
+    validation: err.validation,
     ...(process.env.NODE_ENV === 'development' && err && err.stack ? { stack: err.stack } : {}),
   });
 };
