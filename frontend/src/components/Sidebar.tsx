@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Modal from '@/components/Modal';
+import ThemeToggle from '@/components/ThemeToggle';
 import { apiFetch } from '@/lib/api';
 import { clearStoredAuth, CurrentUser, getStoredUser, ROLE_LABELS } from '@/lib/auth';
 
@@ -58,10 +59,11 @@ export default function Sidebar() {
 
   return (
     <div className="w-64 h-screen bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300">
-      <div className="h-20 flex items-center justify-center border-b border-gray-200 dark:border-gray-800">
+      <div className="h-20 flex items-center justify-between border-b border-gray-200 px-4 dark:border-gray-800">
         <h1 className="text-2xl font-extrabold text-slate-950 dark:text-white">
           Examus
         </h1>
+        <ThemeToggle />
       </div>
 
       <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto">

@@ -86,7 +86,9 @@ export default function ScenarioDetailPage() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('Özet');
   const [running, setRunning] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [comparison, setComparison] = useState<ScenarioComparison | null>(null);
   const [classrooms, setClassrooms] = useState<ClassroomResource[]>([]);
@@ -133,6 +135,7 @@ export default function ScenarioDetailPage() {
   async function run() {
     if (running) return;
     setActionError('');
+    setActionMessage('');
     setRunning(true);
     try {
       await apiFetch(`/planning/scenarios/${params.id}/run`, { method: 'POST' });
@@ -144,7 +147,23 @@ export default function ScenarioDetailPage() {
       setRunning(false);
     }
   }
-  async function recheck() { await apiFetch(`/planning/scenarios/${params.id}/recheck`, { method: 'POST' }); await reload(); }
+  async function recheck() {
+    if (rechecking) return;
+    setActionError('');
+    setActionMessage('Tekrar kontrol başlatıldı. Mevcut plan validasyondan geçiriliyor...');
+    setRechecking(true);
+    try {
+      const response = await apiFetch<Scenario>(`/planning/scenarios/${params.id}/recheck`, { method: 'POST' });
+      const warningCount = response.data.warnings?.length || 0;
+      const hardCount = (response.data.warnings || []).filter((warning) => warning.severity === 'hard').length;
+      setActionMessage(hardCount > 0 ? `Kontrol tamamlandı: ${hardCount} hard uyarı, toplam ${warningCount} uyarı bulundu.` : `Kontrol tamamlandı: hard uyarı yok, toplam ${warningCount} uyarı bulundu.`);
+      await reload();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Tekrar kontrol çalıştırılamadı.');
+    } finally {
+      setRechecking(false);
+    }
+  }
   async function approve() { await apiFetch(`/planning/scenarios/${params.id}/approve`, { method: 'POST' }); await reload(); }
   async function generateInsight() {
     if (aiBusy) return;
@@ -208,7 +227,9 @@ export default function ScenarioDetailPage() {
           >
             {running ? 'Çalışıyor…' : 'Çalıştır'}
           </button>
-          <button onClick={recheck} disabled={running} className="rounded-md border px-3 py-2 text-sm disabled:opacity-60">Tekrar Kontrol Et</button>
+          <button onClick={recheck} disabled={running || rechecking} className="rounded-md border px-3 py-2 text-sm disabled:opacity-60">
+            {rechecking ? 'Kontrol Ediliyor...' : 'Tekrar Kontrol Et'}
+          </button>
           <button onClick={approve} disabled={scenario.status === 'APPROVED' || running} className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Onayla</button>
           <button onClick={generateInsight} disabled={running || aiBusy} className="rounded-md border px-3 py-2 text-sm disabled:opacity-60">
             {aiBusy ? 'AI Yanıtı Bekleniyor...' : 'AI Önerisi Üret'}
@@ -222,6 +243,11 @@ export default function ScenarioDetailPage() {
       {actionError ? (
         <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           {actionError}
+        </div>
+      ) : null}
+      {actionMessage ? (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
+          {actionMessage}
         </div>
       ) : null}
       {aiMessage ? (
