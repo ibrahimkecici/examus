@@ -7,6 +7,8 @@ import StatusPill from '@/components/StatusPill';
 import { apiFetch, getApiUrl, getToken } from '@/lib/api';
 import { CurrentUser, getStoredUser } from '@/lib/auth';
 
+const CREATE_INSTRUCTOR_MAPPING = '__create__';
+
 type Batch = { id: string; entityType: string; fileName?: string; status: string; totalRows: number; successRows: number; errorRows: number; createdRows?: number; updatedRows?: number; createdUserAccounts?: number; createdAt: string };
 type ImportError = { row: number; field?: string; message: string };
 type InstructorOption = { id: string; name: string; email: string; departmentId?: string | null };
@@ -144,6 +146,7 @@ export default function ImportPage() {
       }
       for (const item of response.data.unmatchedInstructors || []) {
         if (item.courseCode && item.existingInstructorId) mappings[item.courseCode] = item.existingInstructorId;
+        else if (item.courseCode) mappings[item.courseCode] = CREATE_INSTRUCTOR_MAPPING;
       }
       setInstructorMappings(mappings);
       setPreview({ type, file, data: response.data });
@@ -235,7 +238,7 @@ export default function ImportPage() {
       />
 
       {preview && (
-        <Modal title={`Import Önizleme — ${preview.data.fileName}`} onClose={() => setPreview(null)}>
+        <Modal title={`Import Önizleme — ${preview.data.fileName}`} onClose={() => setPreview(null)} size="wide">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
               <PreviewStat label="Toplam" value={preview.data.totalRows} />
@@ -283,7 +286,7 @@ export default function ImportPage() {
                 </table>
               </div>
             ) : null}
-            <div className="flex justify-end gap-2">
+            <div className="sticky bottom-0 -mx-5 -mb-4 flex justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3 dark:border-slate-800 dark:bg-slate-900">
               <button type="button" onClick={() => setPreview(null)} className="rounded-md border px-4 py-2 text-sm dark:border-slate-700">İptal</button>
               <button
                 type="button"
@@ -374,12 +377,12 @@ function InstructorMappingPanel({
 }) {
   return (
     <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <p className="text-sm font-semibold">Ders sorumlusu eşleştirmeleri</p>
-          <p className="text-xs text-slate-500">Ders sorumlusu yalnızca INSTRUCTOR kullanıcı hesabıyla bağlanır; gözetmen kaydı burada kullanılmaz.</p>
+          <p className="text-xs text-slate-500">Eşleşmeyen sorumlular varsayılan olarak yeni INSTRUCTOR hesabı olarak oluşturulur; isterseniz mevcut kullanıcı seçebilirsiniz.</p>
         </div>
-        <span className="rounded bg-slate-50 px-2 py-1 text-xs text-slate-500 dark:bg-slate-950">{matched.length} otomatik / {unmatched.length} manuel</span>
+        <span className="shrink-0 rounded bg-slate-50 px-2 py-1 text-xs text-slate-500 dark:bg-slate-950">{matched.length} eşleşti / {unmatched.length} kontrol</span>
       </div>
 
       {matched.length > 0 ? (
@@ -395,14 +398,14 @@ function InstructorMappingPanel({
       {unmatched.length === 0 ? (
         <p className="text-sm text-slate-400">Manuel eşleştirme gerekmiyor.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="max-h-[42vh] space-y-2 overflow-y-auto pr-1">
           {unmatched.map((item) => (
-            <div key={`${item.row}-${item.courseCode}`} className="grid gap-2 rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-950 md:grid-cols-[1fr_260px]">
-              <div>
+            <div key={`${item.row}-${item.courseCode}`} className="grid gap-3 rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-950 lg:grid-cols-[minmax(0,1fr)_minmax(260px,420px)]">
+              <div className="min-w-0">
                 <p className="font-semibold">{item.courseCode || `Satır ${item.row}`}</p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs leading-5 text-slate-500">
                   {instructorStatusLabel(item.status)}{item.value ? `: ${item.value}` : ''}
-                  {item.existingInstructorId ? ' - mevcut sorumlu korunabilir' : ''}
+                  {item.existingInstructorId ? ' - mevcut sorumlu korunabilir' : ' - varsayılan: hesap oluştur'}
                 </p>
                 {item.matches?.length ? (
                   <p className="mt-1 text-xs text-amber-600">Olası eşleşmeler: {item.matches.map((match) => match.name).join(', ')}</p>
@@ -411,8 +414,9 @@ function InstructorMappingPanel({
               <select
                 value={mappings[item.courseCode] || item.existingInstructorId || ''}
                 onChange={(event) => onChange(item.courseCode, event.target.value)}
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                className="min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
               >
+                {!item.existingInstructorId ? <option value={CREATE_INSTRUCTOR_MAPPING}>Yeni ders sorumlusu hesabı oluştur</option> : null}
                 <option value="">Ders sorumlusu seç</option>
                 {instructors.map((instructor) => (
                   <option key={instructor.id} value={instructor.id}>{instructor.name} ({instructor.email})</option>

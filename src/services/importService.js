@@ -6,6 +6,9 @@ const { syncCourseStudentCounts } = require('./courseStatsService');
 const { normalizeDepartmentCode, resolveDepartment } = require('../utils/departmentResolver');
 const { writeAuditLog } = require('../utils/auditLog');
 
+const INSTRUCTOR_DEFAULT_PASSWORD = '12345678';
+const CREATE_INSTRUCTOR_MAPPING = '__create__';
+
 function readRows(file) {
   if (!file) {
     const error = new Error('Dosya yüklenmedi.');
@@ -170,7 +173,10 @@ async function previewImport(type, file, req) {
         existingInstructorId: existing?.instructorId || null,
       };
       if (match.status === 'matched') instructorMatches.push(item);
-      else unmatchedInstructors.push(item);
+      else {
+        unmatchedInstructors.push(item);
+        if (!existing?.instructorId) createdUserAccounts += 1;
+      }
     } else if (type === 'classrooms') {
       const code = value(row, ['code', 'derslikKodu', 'Sınıf Kodu']);
       const existing = await prisma.classroom.findUnique({ where: { code } });
@@ -214,24 +220,62 @@ function courseInstructorColumns(row) {
   };
 }
 
-async function resolveInstructorForCourse(row, code, existingCourse, mappings) {
-  if (mappings[code]) {
+function generatedInstructorEmail(row, code) {
+  const email = value(row, ['instructorEmail']);
+  if (email) return email;
+  const staffNo = value(row, ['instructorStaffNo']);
+  if (staffNo) return `${staffNo}@instructors.examus.local`;
+  return `${code.toLowerCase()}-instructor@instructors.examus.local`;
+}
+
+function instructorNameForCourse(row, code) {
+  return value(row, ['instructorName', 'ogretimElemani', 'Öğretim Elemanı']) || `${code} Ders Sorumlusu`;
+}
+
+async function createInstructorForCourse(row, code, department) {
+  const email = generatedInstructorEmail(row, code);
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    if (existingUser.role !== 'INSTRUCTOR') {
+      const error = new Error(`${code} için ${email} adresi INSTRUCTOR olmayan bir kullanıcıda kayıtlı.`);
+      error.status = 400;
+      throw error;
+    }
+    return { instructor: existingUser, createdUserAccount: false };
+  }
+  const instructor = await prisma.user.create({
+    data: {
+      name: instructorNameForCourse(row, code),
+      email,
+      role: 'INSTRUCTOR',
+      department: department?.name || value(row, ['department', 'bolum', 'Bölüm']) || null,
+      departmentId: department?.id || null,
+      mustChangePassword: true,
+      passwordHash: await bcrypt.hash(INSTRUCTOR_DEFAULT_PASSWORD, 10),
+    },
+  });
+  return { instructor, createdUserAccount: true };
+}
+
+async function resolveInstructorForCourse(row, code, existingCourse, mappings, department) {
+  if (mappings[code] && mappings[code] !== CREATE_INSTRUCTOR_MAPPING) {
     const user = await prisma.user.findFirst({ where: { id: mappings[code], role: 'INSTRUCTOR' } });
     if (!user) {
       const error = new Error(`${code} için seçilen ders sorumlusu INSTRUCTOR kullanıcısı değil.`);
       error.status = 400;
       throw error;
     }
-    return user;
+    return { instructor: user, createdUserAccount: false };
+  }
+  if (mappings[code] === CREATE_INSTRUCTOR_MAPPING) {
+    return createInstructorForCourse(row, code, department);
   }
   const match = await findInstructorForRow(row);
-  if (match.user) return match.user;
+  if (match.user) return { instructor: match.user, createdUserAccount: false };
   if (existingCourse?.instructorId && !courseInstructorColumns(row).instructorName && !courseInstructorColumns(row).instructorEmail && !courseInstructorColumns(row).instructorStaffNo) {
-    return prisma.user.findUnique({ where: { id: existingCourse.instructorId } });
+    return { instructor: await prisma.user.findUnique({ where: { id: existingCourse.instructorId } }), createdUserAccount: false };
   }
-  const error = new Error(`${code} dersi için ders sorumlusu kullanıcı hesabı eşleştirilmelidir.`);
-  error.status = 400;
-  throw error;
+  return createInstructorForCourse(row, code, department);
 }
 
 function buildTemplateWorkbookBuffer(type) {
@@ -400,6 +444,7 @@ async function importCourses(file, req) {
   let successRows = 0;
   let createdRows = 0;
   let updatedRows = 0;
+  let createdUserAccounts = 0;
   const batch = await prisma.importBatch.create({ data: { entityType: 'courses', fileName: file.originalname, totalRows: rows.length } });
 
   for (const [index, row] of rows.entries()) {
@@ -415,7 +460,9 @@ async function importCourses(file, req) {
     const existingCourse = await prisma.course.findUnique({ where: { code } });
     let instructor = null;
     try {
-      instructor = await resolveInstructorForCourse(row, code, existingCourse, instructorMappings);
+      const resolved = await resolveInstructorForCourse(row, code, existingCourse, instructorMappings, department);
+      instructor = resolved.instructor;
+      if (resolved.createdUserAccount) createdUserAccounts += 1;
     } catch (error) {
       errors.push({ row: index + 2, field: 'instructorId', message: error.message });
       continue;
@@ -448,9 +495,9 @@ async function importCourses(file, req) {
     action: 'IMPORT_COURSES',
     entity: 'ImportBatch',
     entityId: batchResult.id,
-    metadata: { successRows, errorRows: errors.length, createdRows, updatedRows, instructorMappingCount: Object.keys(instructorMappings).length },
+    metadata: { successRows, errorRows: errors.length, createdRows, updatedRows, createdUserAccounts, instructorMappingCount: Object.keys(instructorMappings).length },
   });
-  return { ...batchResult, createdRows, updatedRows, createdUserAccounts: 0 };
+  return { ...batchResult, createdRows, updatedRows, createdUserAccounts };
 }
 
 async function importClassrooms(file, req = null) {
@@ -608,4 +655,4 @@ async function importInvigilators(file, req) {
   return { ...batchResult, createdRows, updatedRows, createdUserAccounts };
 }
 
-module.exports = { buildTemplateWorkbookBuffer, importClassrooms, importCourses, importInvigilators, importStudents, previewImport };
+module.exports = { CREATE_INSTRUCTOR_MAPPING, buildTemplateWorkbookBuffer, importClassrooms, importCourses, importInvigilators, importStudents, previewImport };
