@@ -115,10 +115,12 @@ Import sırasında `department` kolonu `Department` kaydıyla eşleştirilir.
 - Bölüm koordinatörü için kayıtlar kendi `departmentId` kapsamına bağlanır.
 - Öğrenci importunda bağlı kullanıcı hesabı yoksa otomatik öğrenci kullanıcısı oluşturulur.
 - Gözetmen importunda bağlı kullanıcı hesabı yoksa otomatik gözetmen kullanıcısı oluşturulur.
-- Ders importunda ders sorumlusu otomatik kullanıcı olarak oluşturulmaz. Sorumlu kişi `User(role=INSTRUCTOR)` hesabı olmalıdır.
+- Ders importunda eşleşmeyen ders sorumluları varsayılan olarak yeni `User(role=INSTRUCTOR)` hesabı oluşturacak şekilde işaretlenir.
 - Ders import şablonu `instructorEmail`, `instructorStaffNo` ve `instructorName` kolonlarını içerir. Öncelik e-posta, sonra personel/sicil no, sonra ad eşleşmesidir.
-- Eşleşmeyen veya birden fazla olası eşleşme bulunan derslerde önizleme ekranında manuel `Ders Sorumlusu Seç` alanı gösterilir; zorunlu eşleşmeler tamamlanmadan import başlatılamaz.
-- Import öncesi önizleme yapılır; eksik/tanınmayan kolonlar, department eşleşmeleri, yeni/güncellenecek kayıtlar ve otomatik oluşacak hesap sayısı gösterilir.
+- Eşleşmeyen derslerde önizleme ekranında varsayılan seçenek `Yeni ders sorumlusu hesabı oluştur` olur; kullanıcı isterse mevcut `INSTRUCTOR` kullanıcısını manuel seçebilir.
+- Birden fazla olası eşleşme bulunan derslerde manuel `Ders Sorumlusu Seç` alanı gösterilir.
+- Var olan e-posta farklı roldeki bir kullanıcıya aitse satır hata sayılır ve düzeltilmeden import başlatılmaz.
+- Import öncesi önizleme yapılır; eksik/tanınmayan kolonlar, department eşleşmeleri, yeni/güncellenecek kayıtlar ve otomatik oluşacak öğrenci/gözetmen/ders sorumlusu hesap sayısı gösterilir.
 - Veri yükleme ekranında her import tipi için varsayılan şablon XLSX formatındadır. Şablonlarda `Veri` ve `Açıklamalar` sayfaları bulunur.
 
 ## Ders Sorumlusu ve Gözetmen Ayrımı
@@ -137,6 +139,13 @@ Ders sorumlusu için kapsam:
 - Sadece `Course.instructorId = currentUser.id` olan dersleri görür.
 - Bu derslerin sınav, salon, öğrenci yerleşimi ve rapor özetlerini görür.
 - Gözetmen profili yoksa gözetmen görev ekranı kapsamına girmez.
+
+Ders sorumlusu hesapları ders importu sırasında otomatik oluşturulabilir:
+
+- Kullanıcı adı/e-posta: `instructorEmail` varsa o adres; yoksa `instructorStaffNo@instructors.examus.local` veya ders kodu tabanlı sistem içi adres.
+- İlk şifre: `12345678`
+- `mustChangePassword=true` ile oluşturulur.
+- Ders sorumlusu ilk girişte yeni şifre belirlemeden sistemi kullanamaz.
 
 Gözetmen için kapsam:
 
@@ -177,6 +186,8 @@ Frontend rol bilgisine göre menü ve aksiyonları saklar.
 - Admin dışı roller raporlarda varsayılan olarak tek ana PDF görür.
 - Gözetmen kendi panelinde oturma düzeni önizlemesine tıklayarak tam grid ve kapı listesini uygulama içinde açabilir.
 - Sınav detay ekranı `/api/exams/:id/operations` üzerinden role göre filtrelenmiş operasyon verisi gösterir.
+- Tema seçimi light/dark toggle ile yapılır ve `localStorage.examus_theme` içinde kalıcı tutulur.
+- AI önerisi ekranında gönderim durumu, provider/model bilgisi, fallback notu ve eski öneriyi silme aksiyonu görünür.
 
 Bu kontroller kullanıcı deneyimi içindir. Asıl yetki kontrolü backend route ve scope kontrollerindedir.
 
@@ -191,10 +202,13 @@ Başlıca uygulama noktaları:
 - `src/routes/manualEditRoutes.js`: validasyonlu manuel düzenleme endpointleri ve audit kayıtları
 - `src/routes/importRoutes.js`: import rol ayrımı
 - `src/routes/userRoutes.js`: admin-only kullanıcı yönetimi ve öğrenci hesap üretimi
-- `src/services/importService.js`: XLSX şablonları, import preview, ders sorumlusu eşleştirme ve otomatik öğrenci/gözetmen hesap üretimi
+- `src/services/importService.js`: XLSX şablonları, import preview, ders sorumlusu eşleştirme ve otomatik öğrenci/gözetmen/ders sorumlusu hesap üretimi
+- `src/services/aiService.js`: heuristic, OpenAI ve LM Studio AI sağlayıcıları
+- `src/routes/aiRoutes.js`: AI insight üretme, listeleme ve silme endpointleri
 - `src/utils/auditLog.js`: import ve operasyon aksiyonları için toleranslı audit log yazımı
 - `src/services/operationService.js`: rol bazlı dashboard ve sınav operasyon verisi
 - `src/services/manualValidationService.js`: manuel düzenleme hard constraint validasyonları
+- `frontend/src/components/ThemeToggle.tsx`: kalıcı light/dark tema seçimi
 - `frontend/src/lib/auth.ts`: frontend rol etiketleri, menü ve ekran erişim yardımcıları
 
 ## Bilinen Sınırlar

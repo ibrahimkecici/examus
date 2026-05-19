@@ -18,11 +18,11 @@ Eklenen ana modüller:
 - Kimlik doğrulama: JWT tabanlı login, mevcut kullanıcı bilgisi ve şifre değiştirme.
 - Kullanıcı yönetimi: `ADMIN`, `DEPARTMENT_MANAGER`, `INSTRUCTOR`, `INVIGILATOR`, `STUDENT` rolleri.
 - Veri yönetimi: öğrenci, ders, derslik, gözetmen, sınav ve sınav dönemi CRUD endpointleri.
-- Veri içe aktarma: CSV/XLSX öğrenci, ders, derslik ve gözetmen importu.
-- Planlama: sınav dönemi üzerinden senaryo oluşturma, skor tabanlı planlama çalıştırma, onaylama ve yeniden çakışma kontrolü.
+- Veri içe aktarma: XLSX şablonları, önizleme, öğrenci/ders/derslik/gözetmen importu ve gerekli kullanıcı hesaplarının otomatik oluşturulması.
+- Planlama: sınav dönemi üzerinden senaryo oluşturma, CP-SAT/heuristic stratejiyle planlama çalıştırma, tekrar kontrol, onaylama ve yeniden çakışma kontrolü.
 - Oturma düzeni: derslik koltuk/sıra modeli ve öğrenci-sıra atamaları.
 - Gözetmen atama: sınav ve senaryo bazlı gözetmen görevlendirme.
-- AI önerileri: `AI_PROVIDER=openai` ve `AI_API_KEY` ile LLM kullanımı; anahtar yoksa deterministic heuristic fallback.
+- AI önerileri: `heuristic`, OpenAI ve LM Studio OpenAI-compatible sağlayıcıları; provider başarısızsa deterministic heuristic fallback.
 - Raporlama: sınav takvimi, oturma planı ve gözetmen listeleri için PDF/Excel çıktı endpointleri.
 
 ## Public API Özeti
@@ -43,6 +43,7 @@ Temel endpoint grupları:
 - `/api/imports/*`
 - `/api/planning/scenarios`
 - `/api/ai/scenarios/:id/insights`
+- `DELETE /api/ai/insights/:id`
 - `/api/reports/scenarios/:id/*.xlsx`
 - `/api/reports/scenarios/:id/*.pdf`
 
@@ -58,7 +59,7 @@ Yeni veya güncellenen ekranlar:
 
 - `/login`: giriş ve ilk admin oluşturma.
 - `/`: dashboard, sayaçlar, son senaryolar ve plan sağlığı.
-- `/veri-yukleme`: CSV/XLSX import ekranı.
+- `/veri-yukleme`: XLSX şablon indirme, import önizleme, loading durumları ve ders sorumlusu eşleştirme/oluşturma ekranı.
 - `/ogrenciler`: öğrenci listeleme ve hızlı kayıt.
 - `/dersler`: ders listeleme ve hızlı kayıt.
 - `/derslikler`: canlı API ile derslik listesi.
@@ -68,8 +69,9 @@ Yeni veya güncellenen ekranlar:
 - `/donemler`: sınav dönemi oluşturma ve listeleme.
 - `/sinavlar`: canlı API ile sınav listesi.
 - `/sinavlar/[id]`: sınav detay ve salon atamaları.
-- `/planlama`: senaryo oluşturma, çalıştırma, AI yorumu ve onaylama.
+- `/planlama`: senaryo oluşturma, çalıştırma, tekrar kontrol, AI yorumu, eski AI önerisini silme ve onaylama.
 - `/raporlar`: Excel/PDF çıktı linkleri.
+- Tüm panel: kalıcı light/dark tema toggle.
 
 ## Veri Modeli
 
@@ -191,10 +193,19 @@ cd frontend && npm run build
 
 Not: `npm run build`, Next/Turbopack’in sandbox içinde port bind etmeye çalışması nedeniyle sandbox dışında çalıştırılarak doğrulandı.
 
+## Güncel Import ve AI Davranışı
+
+- Ders importunda `instructorEmail`, `instructorStaffNo` ve `instructorName` alanlarıyla `INSTRUCTOR` kullanıcısı aranır.
+- Eşleşmeyen ders sorumluları önizlemede varsayılan olarak yeni ders sorumlusu hesabı oluşturacak şekilde seçilir; kullanıcı isterse mevcut `INSTRUCTOR` kullanıcısını manuel seçebilir.
+- Otomatik oluşturulan öğrenci, gözetmen ve ders sorumlusu hesapları `12345678` geçici şifresi ve `mustChangePassword=true` ile oluşturulur.
+- AI sağlayıcısı `.env` içindeki `AI_PROVIDER=heuristic|openai|lmstudio`, `AI_MODEL`, `AI_BASE_URL`, `AI_API_KEY` ve `AI_TIMEOUT_MS` ile ayarlanır.
+- LM Studio için OpenAI-compatible server varsayılan olarak `http://127.0.0.1:1234/v1` üzerinden çağrılır; endpoint erişilemezse kayıt heuristic fallback olarak üretilir.
+- AI önerileri planı değiştirmez; risk, öneri ve manuel kontrol listesi üretir. Arayüzde provider/model, gönderim durumu, fallback notu ve eski öneriyi silme aksiyonu gösterilir.
+
 ## Bilinen Gereksinimler
 
 - PostgreSQL servisinin çalışır olması gerekir.
 - `.env` içindeki `DATABASE_URL` geçerli olmalıdır.
 - Rapor indirme linkleri auth token’ı query parametresiyle iletir.
-- AI için gerçek LLM kullanılacaksa `AI_PROVIDER=openai`, `AI_API_KEY` ve opsiyonel `AI_MODEL` tanımlanmalıdır.
-- `AI_API_KEY` yoksa sistem heuristic öneri üretmeye devam eder.
+- AI için gerçek LLM kullanılacaksa OpenAI tarafında `AI_PROVIDER=openai`, `AI_API_KEY` ve opsiyonel `AI_MODEL`; lokal LM Studio tarafında `AI_PROVIDER=lmstudio`, `AI_BASE_URL` ve `AI_MODEL` tanımlanmalıdır.
+- OpenAI API key yoksa veya LM Studio endpoint’i erişilemezse sistem heuristic öneri üretmeye devam eder.

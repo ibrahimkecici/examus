@@ -9,7 +9,7 @@ Bu sürüm, `examus_gereksinim_dokumani.md` içindeki tam v1 hedeflerine göre E
 - Rol bazlı kullanıcı altyapısı ve JWT kimlik doğrulama
 - Öğrenci, ders, derslik, gözetmen, sınav ve sınav dönemi yönetimi
 - CSV/XLSX veri içe aktarma
-- Import önizleme, XLSX şablonları ve otomatik öğrenci/gözetmen hesap üretimi
+- Import önizleme, XLSX şablonları ve otomatik öğrenci/gözetmen/ders sorumlusu hesap üretimi
 - Sınav dönemi bazlı planlama senaryoları
 - Kapasite, öğrenci çakışması, salon çakışması ve gözetmen çakışması kontrolleri
 - Otomatik salon, sıra ve gözetmen atama
@@ -17,8 +17,10 @@ Bu sürüm, `examus_gereksinim_dokumani.md` içindeki tam v1 hedeflerine göre E
 - Manuel düzenleme sonrası hard constraint validasyonu
 - Plan kalitesi karşılaştırması ve validasyonlu manuel düzenleme UI’ı
 - LLM destekli AI önerileri ve heuristic fallback
+- AI önerisi gönderim durumu, provider/model görünürlüğü ve eski öneri silme
 - PDF/Excel rapor çıktıları
 - Rol bazlı dashboard, operasyon detayları ve filtreli raporlar
+- Kalıcı light/dark tema seçimi
 - Canlı API kullanan Next.js yönetim paneli
 
 ## Teknoloji Stack
@@ -108,7 +110,7 @@ AI_API_KEY=""
 AI_TIMEOUT_MS=30000
 ```
 
-OpenAI anahtarı tanımlanmadığında veya LM Studio endpoint’i erişilemediğinde sistem hata vermeden heuristic öneri üretir. AI çıktısı planı otomatik değiştirmez; risk, öneri ve manuel kontrol listesi olarak saklanır.
+OpenAI anahtarı tanımlanmadığında veya LM Studio endpoint’i erişilemediğinde sistem hata vermeden heuristic öneri üretir. AI çıktısı planı otomatik değiştirmez; risk, öneri ve manuel kontrol listesi olarak saklanır. Arayüzde provider/model bilgisi, gönderim durumu, fallback notu ve eski AI önerilerini silme aksiyonu görünür.
 
 ## CP-SAT Optimizasyon
 
@@ -183,7 +185,7 @@ http://localhost:3000
 2. “İlk admin hesabını oluştur” butonunu kullanın.
 3. Ardından panel üzerinden veri yükleme, dönem oluşturma ve planlama akışını başlatın.
 
-Öğrenci ve gözetmen importları bağlı kullanıcı hesabını otomatik oluşturur. İlk şifre `12345678` olarak hash’lenir ve kullanıcı ilk girişte yeni şifre belirlemek zorundadır.
+Öğrenci, gözetmen ve ders sorumlusu import akışları gerekli kullanıcı hesabını otomatik oluşturabilir. İlk şifre `12345678` olarak hash’lenir ve kullanıcı ilk girişte yeni şifre belirlemek zorundadır.
 
 Ders sorumlusu ayrı bir kullanıcı rolüdür. Ders kayıtlarında güvenilir kapsam `Course.instructorId -> User(role=INSTRUCTOR)` ilişkisidir; eski `instructorName` alanı yalnızca görüntüleme/geçiş uyumluluğu için korunur.
 
@@ -193,9 +195,10 @@ Veri yükleme ekranında her import tipi için XLSX şablonu indirilebilir. Şab
 
 - Eksik zorunlu kolonlar ve tanınmayan kolonlar gösterilir.
 - Department eşleşmeleri listelenir; bölüm koordinatörü importu kendi bölümüne sabitlenir.
-- Yeni/güncellenecek kayıt sayısı ve otomatik oluşturulacak öğrenci/gözetmen hesabı sayısı gösterilir.
+- Yeni/güncellenecek kayıt sayısı ve otomatik oluşturulacak öğrenci/gözetmen/ders sorumlusu hesabı sayısı gösterilir.
 - Ders importunda `instructorEmail`, `instructorStaffNo` veya `instructorName` ile `INSTRUCTOR` kullanıcısı eşleştirilir.
-- Eşleşmeyen veya belirsiz ders sorumluları önizleme ekranında manuel seçilmeden ders importu başlatılamaz.
+- Eşleşmeyen ders sorumluları varsayılan olarak yeni `INSTRUCTOR` hesabı oluşturacak şekilde işaretlenir; kullanıcı isterse mevcut bir ders sorumlusunu manuel seçebilir.
+- Var olan e-posta farklı roldeki bir kullanıcıya aitse satır hata sayılır ve düzeltilmeden import başlatılmaz.
 - Hatalı satır varsa import başlatılmaz.
 
 ## Rol Bazlı Kullanım
@@ -234,7 +237,10 @@ Planlama detay ekranında yetkili kullanıcılar sınav zamanı, salon, gözetme
 - `GET /api/imports/templates/:type.xlsx`
 - `POST /api/imports/:type/preview`
 - `/api/planning/scenarios`
+- `POST /api/planning/scenarios/:id/recheck`
+- `GET /api/planning/scenarios/:id/comparison`
 - `/api/ai/scenarios/:id/insights`
+- `DELETE /api/ai/insights/:id`
 - `/api/reports/scenarios/:id/calendar.xlsx`
 - `/api/reports/scenarios/:id/calendar.pdf`
 

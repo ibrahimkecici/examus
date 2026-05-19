@@ -6,15 +6,27 @@ Bu dizin, Examus yönetim panelinin Next.js uygulamasını içerir. Panel canlı
 
 - `/login`: kullanıcı girişi ve ilk admin oluşturma
 - `/`: dashboard
-- `/veri-yukleme`: CSV/XLSX import
+- `/veri-yukleme`: XLSX şablon indirme, dosya önizleme, import loading durumları ve ders sorumlusu eşleştirme/oluşturma
 - `/ogrenciler`: öğrenci yönetimi
 - `/dersler`: ders yönetimi
 - `/derslikler`: derslik ve oturma planı yönetimi
 - `/gozetmenler`: gözetmen yönetimi
 - `/donemler`: sınav dönemi yönetimi
 - `/sinavlar`: sınav yönetimi
-- `/planlama`: senaryo oluşturma, çalıştırma, AI önerisi ve onaylama
-- `/raporlar`: PDF/Excel çıktı linkleri
+- `/planlama`: senaryo oluşturma, çalıştırma, tekrar kontrol, AI önerisi, eski AI önerisini silme ve onaylama
+- `/raporlar`: role göre sadeleştirilmiş PDF/Excel çıktı linkleri
+
+## Tema
+
+Panel light/dark tema toggle içerir. Seçim `localStorage.examus_theme` içinde saklanır ve sonraki oturumlarda korunur.
+
+## Import Davranışı
+
+Veri yükleme ekranında şablonlar varsayılan olarak XLSX formatındadır. Ders importunda eşleşmeyen ders sorumluları varsayılan olarak yeni `INSTRUCTOR` hesabı oluşturacak şekilde seçilir; kullanıcı isterse mevcut bir ders sorumlusunu manuel seçebilir.
+
+## AI Önerileri
+
+AI öneri kartı provider/model bilgisini, gönderim durumunu ve fallback notunu gösterir. Eski AI önerileri arayüzden silinebilir.
 
 ## Ortam Değişkeni
 
